@@ -1,0 +1,62 @@
+
+
+
+sudo TORCH_DISTRIBUTED_DEBUG=DETAIL WANDB_MODE=disabled accelerate launch --mixed_precision=bf16 --num_machines=1 --num_processes=1 --machine_rank=0 --main_process_ip=127.0.0.1 --main_process_port=2345 --same_network scripts/train_tokenizer.py config=configs/training/single_stage/quadtok_ss256_vae.yaml
+
+sudo TORCH_DISTRIBUTED_DEBUG=DETAIL WANDB_MODE=disabled accelerate launch --mixed_precision=bf16 --num_machines=1 --num_processes=1 --machine_rank=0 --main_process_ip=127.0.0.1 --main_process_port=2345 --same_network scripts/train_tokenizer_video.py config=configs/training/single_stage/titok_sl256_vq8k_video_vae_overfitting.yaml
+from huggingface_hub import hf_hub_download
+hf_hub_download(repo_id="yucornetto/tokenizer_titok_sl256_vq8k_imagenet“, local_dir="/mnt/shared-storage-user/jianglihan/myc/code/One-D-Piece/pretrained_weight")
+from huggingface_hub import snapshot_download
+snapshot_download(repo_id="yucornetto/tokenizer_titok_bl128_vq8k_imagenet", local_dir="/mnt/shared-storage-user/jianglihan/myc/code/One-D-Piece/pretrained_weight/titok_bl128_vq8k")
+
+rjob submit \
+    --name=vae_sl_allps16  \
+    --gpu=4 \
+    --memory=800000 \
+    --cpu=80 \
+    --namespace ailab-idc3 \
+    --charged-group=idc3_gpu \
+    --private-machine=group \
+    --mount=gpfs://gpfs1/jianglihan:/mnt/shared-storage-user/jianglihan \
+    --mount=gpfs://gpfs1/idc2-shared:/mnt/shared-storage-user/idc2-shared \
+    --image=registry.h.pjlab.org.cn/ailab-idc2-idc2_gpu/jianglihan:base \
+    --custom-resources=brainpp.cn/fuse=1 \
+    -P 1 \
+    --host-network=true \
+    -e DISTRIBUTED_JOB=false \
+    -- bash -exc /mnt/shared-storage-user/jianglihan/myc/code/One-D-Piece/job_push_train.sh
+    
+rjob submit \
+    --name=vae_base_attnout_sl  \
+    --gpu=4 \
+    --memory=800000 \
+    --cpu=80 \
+    --charged-group=idc2_gpu \
+    --private-machine=group \
+    --mount=gpfs://gpfs1/jianglihan:/mnt/shared-storage-user/jianglihan \
+    --mount=gpfs://gpfs1/idc2-shared:/mnt/shared-storage-user/idc2-shared \
+    --image=registry.h.pjlab.org.cn/ailab-idc2-idc2_gpu/jianglihan:base \
+    --custom-resources=brainpp.cn/fuse=1 \
+    -P 1 \
+    --host-network=true \
+    -e DISTRIBUTED_JOB=false \
+    -- bash -exc /mnt/shared-storage-user/jianglihan/myc/code/One-D-Piece/job_push_train_sl.sh
+
+
+
+sudo WANDB_MODE=disabled accelerate launch \
+    --mixed_precision=bf16 \
+    --num_machines=1 \
+    --num_processes=1 \
+    --machine_rank=0 \
+    --main_process_ip=127.0.0.1 \
+    --main_process_port=12389 \
+    --same_network \
+    scripts/eval_tokenizer.py \
+        --work_dir checkpoints/quadtok_ss256_vae_base \
+        --output_dir generated/quadtok_sl256
+
+
+val_dataset = load_dataset("imagenet-1k",split="val",cache_dir="/mnt/cube/datasets/imagenet-val")
+
+python scripts/eval_external_tokenizer.py --config configs/external_model/vae_kl16.yaml

@@ -1,0 +1,21 @@
+ckpt_dir: "pretrained_weight/vae/kl16.ckpt"
+output_dir: "eval_output/mar_vae"
+
+model:
+    type: "sdxl-vae"
+
+dataset:
+    type: "simple_image"
+    params:
+        train_shards_path_or_url: "/mnt/shared-storage-user/idc2-shared/dataset/preprocess/imagenet/imagenet-train-{000000..000070}.tar"
+        eval_shards_path_or_url: "/mnt/shared-storage-user/idc2-shared/dataset/preprocess/imagenet/ILSVRC2012_validation/val-{000000..000049}.tar"
+        num_workers_per_gpu: 12
+    preprocessing:
+        resize_shorter_edge: 256
+        crop_size: 256
+        random_crop: False
+        random_flip: False
+        res_ratio_filtering: True
+        normalize_mean: [0.5, 0.5, 0.5]
+        normalize_std: [0.5, 0.5, 0.5]
+
