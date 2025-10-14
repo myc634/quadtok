@@ -1,7 +1,7 @@
 experiment:
     project: "dynamic_tokenizer"
-    name: "quadtok_sl256_vae_base_attnout"
-    output_dir: "checkpoints/quadtok_sl256_vae_base_attnout"
+    name: "quadtok_ss256_vq_allps16_tokensize8_cs16384_maxps16"
+    output_dir: "checkpoints/quadtok_ss256_vq_allps16_tokensize8_cs16384_maxps16"
     max_train_examples: 685_800_000
     save_every: 50_000
     eval_every: 50_000
@@ -16,17 +16,22 @@ model:
     type: "quadtok"
     grad_checkpointing: False
     vq_model:
-      quantize_mode: vae
+      quantize_mode: vq
       # vit arch
       vit_enc_model_size: "small"
-      vit_dec_model_size: "large"
+      vit_dec_model_size: "small"
       vit_enc_patch_size: 16
       vit_dec_patch_size: 16
       decoder_token_size: 256
+      # codebook setting
+      codebook_size: 16384
+      use_l2_norm: True
+      commitment_cost: 0.25
+      token_size: 8
     selector:
-      token_size: 64
-      num_patch_side_list: [1, 2, 4, 8, 16, 32]
-      patch_size_list: [32, 32, 32, 32, 16, 8]
+      token_size: 8
+      num_patch_side_list: [1, 2, 4, 8, 16]
+      patch_size_list: [16, 16, 16, 16, 16]
 
 
 losses:
@@ -39,8 +44,6 @@ losses:
     reconstruction_loss: "l2"
     reconstruction_weight: 1.0
     lecam_regularization_weight: 0.001
-    kl_weight: 1e-8
-    logvar_init: 0.0
 
 dataset:
     type: "simple_image"

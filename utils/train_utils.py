@@ -828,7 +828,12 @@ def eval_reconstruction(
         # if length is not None:
         #     token_indices = token_indices[:, :, :length]
         #     assert token_indices.shape[2] == length, f"Expected token indices shape {length}, got {token_indices.shape[2]}, where the original shape is {model_dict['min_encoding_indices'].shape}"
-        evaluator.update(original_images, reconstructed_images.squeeze(2), None)
+        if local_model.quantize_mode == 'vq': 
+            # For VQ model.
+            evaluator.update(original_images, reconstructed_images.squeeze(2), model_dict["min_encoding_indices"])
+        else:
+            # For VAE model.
+            evaluator.update(original_images, reconstructed_images.squeeze(2), None)
     model.train()
     return evaluator.result()
 

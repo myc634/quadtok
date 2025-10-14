@@ -85,7 +85,7 @@ from accelerate.utils import set_seed
 from accelerate import Accelerator
 
 from utils.train_utils import create_model, create_dataloader, auto_resume, create_evaluator
-from modeling.utils import build_quadtree, _copy_subtree_to_depth, _get_nodes_at_level, build_quadtree
+from modeling.utils import build_quadtree, _copy_subtree_to_depth, _get_nodes_at_level, build_quadtree, build_random_quadtree
 
 def image_generator(config, logger, accelerator):
     config.training.per_gpu_batch_size = 1
@@ -182,26 +182,30 @@ def main(args):
         return pruned_tree_roots
 
     # tree_structure = generate_tree_structure(args.max_tree_depth)
-
+    token_num = 0
     for image, image_path, image_key, class_id in tqdm(generator):
         count += 1
 
         # step_tree_structure = copy.deepcopy(tree_structure)
-        # latent_feats = accelerator.unwrap_model(model).encode(image)
-        # tree_structure = build_quadtree(model.num_patch_side_list)
-        # z = accelerator.unwrap_model(model).selector(latent_feats, tree_structure)
-        # # z_quantized = accelerator.unwrap_model(model).quantize(z).sample()
-        # reconstructed_images = accelerator.unwrap_model(model).decode(z.permute(0, 3, 1, 2).squeeze(-1), tree_structure)
-        reconstructed_images, _ = accelerator.unwrap_model(model)(image)
+        latent_feats = accelerator.unwrap_model(model).encode(image)
+        tree_structure = build_random_quadtree(model.num_patch_side_list, 4)
+        z = accelerator.unwrap_model(model).selector(latent_feats, tree_structure)
+        token_num += z.shape[-1]
+        z_quantized, model_dict = accelerator.unwrap_model(model).quantize(z)#.sample()
+        reconstructed_images = accelerator.unwrap_model(model).decode(z_quantized.permute(0, 3, 2, 1).squeeze(2).contiguous(), tree_structure)
+        # reconstructed_images, model_dict = accelerator.unwrap_model(model)(image)
         reconstructed_images = torch.clamp(reconstructed_images, 0.0, 1.0)
         # Quantize to uint8
         reconstructed_images = torch.round(reconstructed_images * 255.0) / 255.0
         image = torch.clamp(image, 0.0, 1.0)
         # breakpoint()
-        evaluator.update(image, reconstructed_images, None)
+        if model.quantize_mode == "vae":
+            evaluator.update(image, reconstructed_images, None)
+        else:
+            evaluator.update(image, reconstructed_images, model_dict["min_encoding_indices"])
         # if count == 1000:
         #     break
-
+    print(token_num / count)
     print(evaluator.result())
 
     

@@ -2,7 +2,7 @@ experiment:
     project: "dynamic_tokenizer"
     name: "quadtok_sl256_vae_allps16"
     output_dir: "checkpoints/quadtok_sl256_vae_allps16"
-    max_train_examples: 685_800_000
+    max_train_examples: 685_800_000. #  Converge at 300_000
     save_every: 50_000
     eval_every: 50_000
     generate_every: 500
@@ -19,7 +19,7 @@ model:
       quantize_mode: vae
       # vit arch
       vit_enc_model_size: "small"
-      vit_dec_model_size: "large"
+      vit_dec_model_size: "small"
       vit_enc_patch_size: 16
       vit_dec_patch_size: 16
       decoder_token_size: 256

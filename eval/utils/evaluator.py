@@ -27,7 +27,7 @@ from transformers import AutoImageProcessor, AutoModelForDepthEstimation
 from PIL import Image
 import torchvision
 from transformers import CLIPProcessor, CLIPModel
-
+import math
 from .inception import get_inception_model
 
 
@@ -125,7 +125,7 @@ class VQGANEvaluator:
 
         self._set_of_codebook_indices = set()
         self._codebook_frequencies = torch.zeros((self._num_codebook_entries), dtype=torch.float64, device=self._device)
-        self._position_codebook_frequencies = torch.zeros((256, self._num_codebook_entries), dtype=torch.float64, device=self._device)
+        self._position_codebook_frequencies = torch.zeros((1024, self._num_codebook_entries), dtype=torch.float64, device=self._device)
 
     def update(
         self,
@@ -283,7 +283,9 @@ class VQGANEvaluator:
             entropy_per_position = (-torch.log2(entropy_per_position + 1e-8) * entropy_per_position).sum(dim=1)
             # tolist and make more readable
             entropy_per_position = entropy_per_position.tolist()
-            entropy_per_position = "\n".join([f"{i:04d}: {v}" for i, v in enumerate(entropy_per_position)])
+            entropy_per_position = "\n".join(
+                [f"{i:04d}: {v}" for i, v in enumerate(entropy_per_position) if not math.isnan(v)]
+            )
             eval_score["CodebookEntropyPerPosition"] = entropy_per_position
 
         return eval_score
