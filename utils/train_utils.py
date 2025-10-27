@@ -25,16 +25,19 @@ from collections import defaultdict
 
 from data import SimpleImageDataset, SimpleVideoDataset
 import torch
+import torch.nn.functional as F
 from omegaconf import OmegaConf
 from torch.optim import AdamW
 from utils.lr_schedulers import get_scheduler
-from modeling.modules import EMAModel, ReconstructionLoss_Stage1, ReconstructionLoss_Stage2, MLMLoss, ReconstructionLoss_Single_Stage
+from modeling.modules import EMAModel, ReconstructionLoss_Stage1, ReconstructionLoss_Stage2, MLMLoss, ReconstructionLoss_Single_Stage, ReconstructionLoss_Reward
 from modeling.titok import TiTok, PretrainedTokenizer as TiTokPretrainedTokenizer
 from modeling.one_d_piece import OneDPiece, PretrainedTokenizer as OneDPiecePretrainedTokenizer
-from modeling.quadtok import QuadTok
+from modeling.quadtok import QuadTok, PolicyQuadTok
 from modeling.maskgit import ImageBert, UViTBert
 from eval.utils.evaluator import VQGANEvaluator
 from demo_util import sample_fn
+import torchvision
+from torch.nn.utils.rnn import pad_sequence
 
 from utils.viz_utils import make_viz_from_samples, make_viz_from_samples_generation
 from torchinfo import summary
@@ -130,6 +133,11 @@ def create_model(config, logger, accelerator,
             pretrained_tokenizer_weight = {"pixel_" + k:v for k,v in pretrained_tokenizer_weight.items() if not "encoder." in k}
             model_weight.update(pretrained_tokenizer_weight)
         
+        init_from_vae = config.experiment.get("init_from_vae", False)
+        if init_from_vae:
+            model_weight.pop('selector.out_proj.weight')
+            model_weight.pop('selector.out_proj.bias')
+
         msg = model.load_state_dict(model_weight, strict=False)
         logger.info(f"loading weight from {config.experiment.init_weight}, msg: {msg}")
 
@@ -156,10 +164,11 @@ def create_model(config, logger, accelerator,
     # Print Model for sanity check.
     if accelerator.is_main_process:
         if model_type in ["titok", "one_d_piece", "quadtok"]:
-            input_size = (1, 3, config.dataset.preprocessing.crop_size, config.dataset.preprocessing.crop_size)
-            model_summary_str = summary(model, input_size=input_size, depth=5,
-            col_names=("input_size", "output_size", "num_params", "params_percent", "kernel_size", "mult_adds"))
-            logger.info(model_summary_str)
+            if not model.train_policy:
+                input_size = (1, 3, config.dataset.preprocessing.crop_size, config.dataset.preprocessing.crop_size)
+                model_summary_str = summary(model, input_size=input_size, depth=5,
+                col_names=("input_size", "output_size", "num_params", "params_percent", "kernel_size", "mult_adds"))
+                logger.info(model_summary_str)
         elif model_type in ["maskgit"]:
             input_size = (1, config.model.vq_model.num_latent_tokens)
             input_data = [
@@ -175,6 +184,36 @@ def create_model(config, logger, accelerator,
         
     return model, ema_model
 
+def create_policy_model(config, logger, accelerator,
+                 model_type="titok"):
+    """Creates TiTok model."""
+    logger.info("Creating model.")
+    model_cls = PolicyQuadTok
+    model = model_cls(config)
+
+
+    # Create the EMA model.
+    ema_model = None
+    if config.training.use_ema:
+        ema_model = EMAModel(model.parameters(), decay=0.999,
+                            model_cls=model_cls, config=config)
+        # Create custom saving and loading hooks so that `accelerator.save_state(...)` serializes in a nice format.
+        def load_model_hook(models, input_dir):
+            load_model = EMAModel.from_pretrained(os.path.join(input_dir, "ema_model"),
+                                                  model_cls=model_cls, config=config)
+            ema_model.load_state_dict(load_model.state_dict())
+            ema_model.to(accelerator.device)
+            del load_model
+
+        def save_model_hook(models, weights, output_dir):
+            if accelerator.is_main_process:
+                ema_model.save_pretrained(os.path.join(output_dir, "ema_model"))
+
+        accelerator.register_load_state_pre_hook(load_model_hook)
+        accelerator.register_save_state_pre_hook(save_model_hook)
+        
+    return model, ema_model
+
 def create_model_and_loss_module(config, logger, accelerator,
                                  model_type="titok"):
     """Creates TiTok model and loss module."""
@@ -183,10 +222,12 @@ def create_model_and_loss_module(config, logger, accelerator,
     # Create model.
     model, ema_model = create_model(config, logger, accelerator, model_type=model_type)
 
-    if model_type in ["titok", "one_d_piece", "quadtok"]:
+    if model_type in ["titok", "one_d_piece", "quadtok"] and model.train_policy == False:
         loss_cls = ReconstructionLoss_Single_Stage
     elif model_type == "maskgit":
         loss_cls = MLMLoss
+    elif model_type in ["titok", "one_d_piece", "quadtok"] and model.train_policy:
+        loss_cls = ReconstructionLoss_Reward
     else:
         raise ValueError(f"Unsupported model_type {model_type}")
 
@@ -433,7 +474,7 @@ def train_one_epoch(config, logger, accelerator,
             # Gather the losses across all processes for logging.
             autoencoder_logs = {}
             for k, v in loss_dict.items():
-                if k in ["discriminator_factor", "d_weight"]:
+                if k in ["discriminator_factor", "d_weight", "num_tokens"]:
                     if type(v) == torch.Tensor:
                         autoencoder_logs["train/" + k] = v.cpu().item()
                     else:
@@ -511,30 +552,50 @@ def train_one_epoch(config, logger, accelerator,
                 )
 
                 lr = lr_scheduler.get_last_lr()[0]
-                if config.model.vq_model.quantize_mode == "vq":
-                    logger.info(
-                        f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
-                        f"Batch (t): {batch_time_meter.val:0.4f} "
-                        f"LR: {lr:0.6f} "
-                        f"Step: {global_step + 1} "
-                        f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
-                        f"Quantizer Loss: {autoencoder_logs['train/quantizer_loss']:0.4f} "
-                        f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
-                        + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
-                        + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
-                    )
-                elif config.model.vq_model.quantize_mode == "vae":
-                    logger.info(
-                        f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
-                        f"Batch (t): {batch_time_meter.val:0.4f} "
-                        f"LR: {lr:0.6f} "
-                        f"Step: {global_step + 1} "
-                        f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
-                        f"KL Loss: {autoencoder_logs['train/kl_loss']:0.4f} "
-                        f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
-                        + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
-                        + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
-                    )
+                if not config.model.train_policy:
+                    if config.model.vq_model.quantize_mode == "vq":
+                        logger.info(
+                            f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
+                            f"Batch (t): {batch_time_meter.val:0.4f} "
+                            f"LR: {lr:0.6f} "
+                            f"Step: {global_step + 1} "
+                            f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
+                            f"Quantizer Loss: {autoencoder_logs['train/quantizer_loss']:0.4f} "
+                            f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
+                            + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
+                            + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
+                        )
+                    elif config.model.vq_model.quantize_mode == "vae":
+                        logger.info(
+                            f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
+                            f"Batch (t): {batch_time_meter.val:0.4f} "
+                            f"LR: {lr:0.6f} "
+                            f"Step: {global_step + 1} "
+                            f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
+                            f"KL Loss: {autoencoder_logs['train/kl_loss']:0.4f} "
+                            f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
+                            + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
+                            + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
+                        )
+                else:
+                    if config.model.vq_model.quantize_mode == "vae":
+                        logger.info(
+                            f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
+                            f"Batch (t): {batch_time_meter.val:0.4f} "
+                            f"LR: {lr:0.6f} "
+                            f"Step: {global_step + 1} "
+                            f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
+                            f"Policy Loss: {autoencoder_logs['train/policy_loss']:0.4f} "
+                            f"Prob Number: {autoencoder_logs['train/prob_mean']:0.4f} "
+                            f"Reward: {autoencoder_logs['train/reward']:0.4f} "
+                            f"KL Loss: {autoencoder_logs['train/kl_loss']:0.4f} "
+                            f"Token Number: {autoencoder_logs['train/num_tokens']:0.2f} "
+                            f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
+                            + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
+                            + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
+                        )
+                    else:
+                        NotImplementedError
                 logs = {
                     "lr": lr,
                     "lr/generator": lr,
@@ -632,6 +693,699 @@ def train_one_epoch(config, logger, accelerator,
                     if accelerator.is_main_process:
                         eval_log = {f'eval/'+k: v for k, v in eval_scores.items()}
                         accelerator.log(eval_log, step=global_step + 1)
+
+                accelerator.wait_for_everyone()
+
+            global_step += 1
+
+            if global_step >= config.training.max_train_steps:
+                accelerator.print(
+                    f"Finishing training: Global step is >= Max train steps: {global_step} >= {config.training.max_train_steps}"
+                )
+                break
+
+
+    return global_step
+
+def train_one_epoch_stage2(config, logger, accelerator,
+                    model, policy_model, ema_model, loss_module,
+                    optimizer, discriminator_optimizer,
+                    lr_scheduler, discriminator_lr_scheduler,
+                    train_dataloader, eval_dataloader,
+                    evaluator,
+                    global_step,
+                    pretrained_tokenizer=None):
+    """One epoch training."""
+    batch_time_meter = AverageMeter()
+    data_time_meter = AverageMeter()
+    end = time.time()
+
+    model.train()
+
+    autoencoder_logs = defaultdict(float)
+    discriminator_logs = defaultdict(float)
+    for i, batch in enumerate(train_dataloader):
+        model.train()
+        additional_args = {}
+        if config.model.type in ["titok", "one_d_piece", "quadtok"]:
+            if "image" in batch:
+                images = batch["image"].to(
+                    accelerator.device, memory_format=torch.contiguous_format, non_blocking=True
+                )
+                # Reconstruction
+                expected_output_images = images
+            else:
+                raise ValueError(f"Not found valid keys: {batch.keys()}")
+        else:
+            raise ValueError(f"Unsupported model type {config.model.type}")
+
+        fnames = batch["__key__"]
+        data_time_meter.update(time.time() - end)
+
+        with accelerator.accumulate([policy_model, loss_module]):
+
+            with torch.no_grad():
+                image_latent = model.encode(images)
+            predicted_actions, predicted_probs = policy_model(image_latent)
+            breakpoint()
+            z = model.selector._forward_policy(image_latent, predicted_actions)
+            z_quantized = model.quantize(z).sample()
+            reconstruction = model.decoder._forward_policy(z_quantized, predicted_actions, predicted_probs)
+
+            breakpoint()
+            reconstructed_images, extra_results_dict = model(images, **additional_args)
+            autoencoder_loss, loss_dict = loss_module(
+                expected_output_images,
+                reconstructed_images,
+                extra_results_dict,
+                global_step,
+                mode="generator",
+            )
+
+
+            # Gather the losses across all processes for logging.
+            autoencoder_logs = {}
+            for k, v in loss_dict.items():
+                if k in ["discriminator_factor", "d_weight", "num_tokens"]:
+                    if type(v) == torch.Tensor:
+                        autoencoder_logs["train/" + k] = v.cpu().item()
+                    else:
+                        autoencoder_logs["train/" + k] = v
+                else:
+                    autoencoder_logs["train/" + k] = accelerator.gather(v).mean().item()
+
+            accelerator.backward(autoencoder_loss)
+
+            if config.training.max_grad_norm is not None and accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(model.parameters(), config.training.max_grad_norm)
+
+            optimizer.step()
+            lr_scheduler.step()
+
+            # Log gradient norm before zeroing it.
+            if (
+                accelerator.sync_gradients
+                and (global_step + 1) % config.experiment.log_grad_norm_every == 0
+                and accelerator.is_main_process
+            ):
+                log_grad_norm(model, accelerator, global_step + 1)
+
+            optimizer.zero_grad(set_to_none=True)
+
+            # Train discriminator.
+            discriminator_logs = defaultdict(float)
+            if (config.model.type in ["titok", "one_d_piece", "quadtok"]) and accelerator.unwrap_model(loss_module).should_discriminator_be_trained(global_step):
+                discriminator_logs = defaultdict(float)
+                discriminator_loss, loss_dict_discriminator = loss_module(
+                    images,
+                    reconstructed_images,
+                    extra_results_dict,
+                    global_step=global_step,
+                    mode="discriminator",
+                )
+
+                # Gather the losses across all processes for logging.
+                for k, v in loss_dict_discriminator.items():
+                    if k in ["logits_real", "logits_fake"]:
+                        if type(v) == torch.Tensor:
+                            discriminator_logs["train/" + k] = v.cpu().item()
+                        else:
+                            discriminator_logs["train/" + k] = v
+                    else:
+                        discriminator_logs["train/" + k] = accelerator.gather(v).mean().item()
+
+                accelerator.backward(discriminator_loss)
+
+                if config.training.max_grad_norm is not None and accelerator.sync_gradients:
+                    accelerator.clip_grad_norm_(loss_module.parameters(), config.training.max_grad_norm)
+
+                discriminator_optimizer.step()
+                discriminator_lr_scheduler.step()
+        
+                # Log gradient norm before zeroing it.
+                if (
+                    accelerator.sync_gradients
+                    and (global_step + 1) % config.experiment.log_grad_norm_every == 0
+                    and accelerator.is_main_process
+                ):
+                    log_grad_norm(loss_module, accelerator, global_step + 1)
+                
+                discriminator_optimizer.zero_grad(set_to_none=True)
+
+        if accelerator.sync_gradients:
+            if config.training.use_ema:
+                ema_model.step(policy_model.parameters())
+            batch_time_meter.update(time.time() - end)
+            end = time.time()
+
+            if (global_step + 1) % config.experiment.log_every == 0:
+                samples_per_second_per_gpu = (
+                    config.training.gradient_accumulation_steps * config.training.per_gpu_batch_size / batch_time_meter.val
+                )
+
+                lr = lr_scheduler.get_last_lr()[0]
+                if not config.model.train_policy:
+                    if config.model.vq_model.quantize_mode == "vq":
+                        logger.info(
+                            f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
+                            f"Batch (t): {batch_time_meter.val:0.4f} "
+                            f"LR: {lr:0.6f} "
+                            f"Step: {global_step + 1} "
+                            f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
+                            f"Quantizer Loss: {autoencoder_logs['train/quantizer_loss']:0.4f} "
+                            f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
+                            + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
+                            + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
+                        )
+                    elif config.model.vq_model.quantize_mode == "vae":
+                        logger.info(
+                            f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
+                            f"Batch (t): {batch_time_meter.val:0.4f} "
+                            f"LR: {lr:0.6f} "
+                            f"Step: {global_step + 1} "
+                            f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
+                            f"KL Loss: {autoencoder_logs['train/kl_loss']:0.4f} "
+                            f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
+                            + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
+                            + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
+                        )
+                else:
+                    if config.model.vq_model.quantize_mode == "vae":
+                        logger.info(
+                            f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
+                            f"Batch (t): {batch_time_meter.val:0.4f} "
+                            f"LR: {lr:0.6f} "
+                            f"Step: {global_step + 1} "
+                            f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
+                            f"Policy Loss: {autoencoder_logs['train/policy_loss']:0.4f} "
+                            f"Prob Number: {autoencoder_logs['train/prob_mean']:0.4f} "
+                            f"Reward: {autoencoder_logs['train/reward']:0.4f} "
+                            f"KL Loss: {autoencoder_logs['train/kl_loss']:0.4f} "
+                            f"Token Number: {autoencoder_logs['train/num_tokens']:0.2f} "
+                            f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
+                            + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
+                            + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
+                        )
+                    else:
+                        NotImplementedError
+                logs = {
+                    "lr": lr,
+                    "lr/generator": lr,
+                    "samples/sec/gpu": samples_per_second_per_gpu,
+                    "time/data_time": data_time_meter.val,
+                    "time/batch_time": batch_time_meter.val,
+                }
+                logs.update(autoencoder_logs)
+                logs.update(discriminator_logs)
+                accelerator.log(logs, step=global_step + 1)
+
+                # Reset batch / data time meters per log window.
+                batch_time_meter.reset()
+                data_time_meter.reset()
+
+            # Save model checkpoint.
+            if (global_step + 1) % config.experiment.save_every == 0:
+                save_path = save_checkpoint(
+                    model, config.experiment.output_dir, accelerator, global_step + 1, logger=logger)
+                # Wait for everyone to save their checkpoint.
+                accelerator.wait_for_everyone()
+
+            # Generate images.
+            if (global_step + 1) % config.experiment.generate_every == 0 and accelerator.is_main_process:
+                # Store the model parameters temporarily and load the EMA parameters to perform inference.
+                if config.training.get("use_ema", False):
+                    ema_model.store(policy_model.parameters())
+                    ema_model.copy_to(policy_model.parameters())
+                if config.model.type in ["titok", "one_d_piece", "quadtok"]:
+                    reconstruct_method = reconstruct_images
+                    additional_args = {}
+
+                reconstruct_method(
+                    model,
+                    images[:config.training.num_generated_images],
+                    fnames[:config.training.num_generated_images],
+                    accelerator,
+                    global_step + 1,
+                    config.experiment.output_dir,
+                    logger=logger,
+                    config=config,
+                    pretrained_tokenizer=pretrained_tokenizer,
+                    **additional_args
+                )
+
+                if config.training.get("use_ema", False):
+                    # Switch back to the original model parameters for training.
+                    ema_model.restore(policy_model.parameters())
+
+
+            # Evaluate reconstruction.
+            if config.model.type in ["titok", "one_d_piece", "quadtok"]:
+                eval_metrics = eval_reconstruction
+            else:
+                raise ValueError(f"Unsupported model type {config.model.type}")
+            if eval_dataloader is not None and (global_step + 1) % config.experiment.eval_every == 0:
+                logger.info(f"Computing metrics on the validation set.")
+                if config.training.get("use_ema", False):
+                    ema_model.store(policy_model.parameters())
+                    ema_model.copy_to(policy_model.parameters())
+                    # Eval for EMA.
+                    eval_scores = eval_metrics(
+                        model,
+                        eval_dataloader,
+                        accelerator,
+                        evaluator,
+                        pretrained_tokenizer=pretrained_tokenizer
+                    )
+                    logger.info(
+                        f"EMA EVALUATION "
+                        f"Step: {global_step + 1} "
+                    )
+                    logger.info(pprint.pformat(eval_scores))
+                    if accelerator.is_main_process:
+                        eval_log = {f'ema_eval/'+k: v for k, v in eval_scores.items()}
+                        accelerator.log(eval_log, step=global_step + 1)
+                    if config.training.get("use_ema", False):
+                        # Switch back to the original model parameters for training.
+                        ema_model.restore(policy_model.parameters())
+                else:
+                    # Eval for non-EMA.
+                    eval_scores = eval_metrics(
+                        model,
+                        eval_dataloader,
+                        accelerator,
+                        evaluator,
+                        pretrained_tokenizer=pretrained_tokenizer
+                    )
+
+                    logger.info(
+                        f"Non-EMA EVALUATION "
+                        f"Step: {global_step + 1} "
+                    )
+                    logger.info(pprint.pformat(eval_scores))
+                    if accelerator.is_main_process:
+                        eval_log = {f'eval/'+k: v for k, v in eval_scores.items()}
+                        accelerator.log(eval_log, step=global_step + 1)
+
+                accelerator.wait_for_everyone()
+
+            global_step += 1
+
+            if global_step >= config.training.max_train_steps:
+                accelerator.print(
+                    f"Finishing training: Global step is >= Max train steps: {global_step} >= {config.training.max_train_steps}"
+                )
+                break
+
+
+    return global_step
+
+def train_one_epoch_policy(config, logger, accelerator,
+                    model, policy_model, ema_model, loss_module,
+                    optimizer, discriminator_optimizer,
+                    lr_scheduler, discriminator_lr_scheduler,
+                    train_dataloader, eval_dataloader,
+                    evaluator,
+                    global_step,
+                    pretrained_tokenizer=None):
+    """One epoch training."""
+    batch_time_meter = AverageMeter()
+    data_time_meter = AverageMeter()
+    end = time.time()
+
+    policy_model.train()
+    model.eval()
+
+    autoencoder_logs = defaultdict(float)
+    discriminator_logs = defaultdict(float)
+    for i, batch in enumerate(train_dataloader):
+        policy_model.train()
+        model.eval()
+        additional_args = {}
+        if config.model.type in ["titok", "one_d_piece", "quadtok"]:
+            if "image" in batch:
+                images = batch["image"].to(
+                    accelerator.device, memory_format=torch.contiguous_format, non_blocking=True
+                )
+                # Reconstruction
+                bs = images.shape[0]
+                expected_output_images = images
+            else:
+                raise ValueError(f"Not found valid keys: {batch.keys()}")
+        else:
+            raise ValueError(f"Unsupported model type {config.model.type}")
+
+        fnames = batch["__key__"]
+        data_time_meter.update(time.time() - end)
+
+        policy_params = config.policy
+        REWARD_SCALING = 100000.0
+
+        with accelerator.accumulate([policy_model]):
+            with torch.no_grad():
+                image_latents = model.encode(images)
+            image_latents_grouped = image_latents.repeat(
+                policy_params.group_size, *([1] * (image_latents.dim() - 1))
+            )
+            images_grouped = images.repeat(policy_params.group_size, 1, 1, 1)
+            b_g = images_grouped.shape[0]
+
+            total_returns = torch.zeros(b_g, device=accelerator.device)
+            total_quality_improvement = torch.zeros(b_g, device=accelerator.device)
+
+            with torch.no_grad():
+                trajectories = accelerator.unwrap_model(policy_model).sample_trajectories(
+                    image_latents_grouped
+                )
+            all_lods_list = []
+            all_indices_list = []
+            all_num_tokens_list = []
+            all_image_latents_list = []
+            all_gt_images_list = []
+            
+            trajectory_map = [] 
+            total_steps = 0
+
+            with torch.no_grad():
+                for i_traj in range(b_g):
+                    traj = trajectories[i_traj]
+                    image_latent_i = traj["image_latent"].unsqueeze(0)
+                    gt_image_i = images_grouped[i_traj].unsqueeze(0)
+
+                    if not traj["partial_trees_list"] or len(traj["partial_trees_list"]) <= config.policy_model.guaranteed_depth:
+                        continue
+
+                    for t in range(config.policy_model.guaranteed_depth, model.num_lod):
+                        if t >= len(traj["partial_trees_list"]):
+                            break 
+                            
+                        partial_tree_t = traj["partial_trees_list"][t]
+                        
+                        all_lods_list.append(partial_tree_t["pruned_lods_padded"])
+                        all_indices_list.append(partial_tree_t["pruned_indices_padded"])
+                        all_num_tokens_list.append(partial_tree_t["num_tokens"])
+                        all_image_latents_list.append(image_latent_i)
+                        all_gt_images_list.append(gt_image_i)
+                        
+                        trajectory_map.append((i_traj, t))
+                        total_steps += 1
+
+            max_len_batch = max(t.shape[1] for t in all_lods_list)
+
+            batched_lods = pad_sequence(
+                [t.squeeze(0) for t in all_lods_list], batch_first=True, padding_value=-1
+            )
+            batched_indices = pad_sequence(
+                [t.squeeze(0) for t in all_indices_list], batch_first=True, padding_value=-1
+            )
+            
+            if batched_lods.shape[1] < max_len_batch:
+                batched_lods = F.pad(batched_lods, (0, max_len_batch - batched_lods.shape[1]), 'constant', -1)
+            if batched_indices.shape[1] < max_len_batch:
+                batched_indices = F.pad(batched_indices, (0, max_len_batch - batched_indices.shape[1]), 'constant', -1)
+
+            batched_num_tokens = torch.cat(all_num_tokens_list, dim=0)
+            
+            batched_policy_result = {
+                "pruned_lods_padded": batched_lods,
+                "pruned_indices_padded": batched_indices,
+                "num_tokens": batched_num_tokens
+            }
+            
+            batched_image_latents = torch.cat(all_image_latents_list, dim=0)
+            batched_gt_images = torch.cat(all_gt_images_list, dim=0)
+
+            with torch.no_grad():
+                model.train_policy = True
+                reconstructions, _ = model.decoding_pre_selector(
+                    batched_image_latents, 
+                    policy_output=batched_policy_result
+                )
+                
+                total_losses_per_item, loss_dict = loss_module(
+                    batched_gt_images,
+                    reconstructions,
+                )
+
+            total_returns = torch.zeros(b_g, device=accelerator.device)
+            total_quality_improvement = torch.zeros(b_g, device=accelerator.device)
+            
+            traj_losses = defaultdict(dict)
+
+            for i in range(total_steps):
+                i_traj, t = trajectory_map[i]
+                traj_losses[i_traj][t] = total_losses_per_item[i]
+                
+            for i_traj in range(b_g):
+                if not traj_losses[i_traj]: continue
+                
+                loss_G = traj_losses[i_traj][config.policy_model.guaranteed_depth]
+
+                final_t_for_traj = max(traj_losses[i_traj].keys())
+                loss_T = traj_losses[i_traj][final_t_for_traj]
+                total_improvement = (loss_G - loss_T)
+                total_quality_improvement[i_traj] = total_improvement 
+
+                final_global_reward = -loss_T
+                total_returns[i_traj] = (total_improvement * policy_params.improvement_scaling) + \
+                                        (final_global_reward * policy_params.final_loss_scaling)
+
+            returns_grouped = total_returns.view(bs, policy_params.group_size)
+            group_mean = returns_grouped.mean(dim=1, keepdim=True)
+            group_std = returns_grouped.std(dim=1, keepdim=True)
+            advantages_normalized = (returns_grouped - group_mean) / (group_std + 1e-8)
+            advantages_flat = advantages_normalized.flatten().detach()
+
+            mean_policy_loss = torch.tensor(0.0, device=accelerator.device)
+
+            valid_trajectories = []
+            valid_advantages = []
+            valid_indices = []
+            
+            for i_traj in range(b_g):
+                if trajectories[i_traj]["actions_list"]: 
+                    valid_trajectories.append(trajectories[i_traj])
+                    valid_advantages.append(advantages_flat[i_traj])
+                    valid_indices.append(i_traj)
+            
+            if not valid_trajectories:
+                if accelerator.is_main_process:
+                     logger.warning(f"Step {global_step}: No valid trajectories for PPO update.")
+                continue #
+            
+            num_valid_trajectories = len(valid_trajectories)
+            
+ 
+            batched_image_latents = torch.cat(
+                [traj["image_latent"].unsqueeze(0) for traj in valid_trajectories], 
+                dim=0
+            ) # (B_valid, L, D)
+            
+            batched_advantages = advantages_flat[valid_indices] # (B_valid,)
+            
+            max_T = max(len(traj["actions_list"]) for traj in valid_trajectories)
+            
+            batched_old_logprobs = torch.zeros(num_valid_trajectories, max_T, device=accelerator.device)
+            batched_actions_full_tensor = torch.zeros(num_valid_trajectories, accelerator.unwrap_model(policy_model).num_total_nodes, 1, device=accelerator.device)
+            timesteps_mask = torch.zeros(num_valid_trajectories, max_T, device=accelerator.device)
+
+            for i, traj in enumerate(valid_trajectories):
+                T_i = len(traj["actions_list"])
+                timesteps_mask[i, :T_i] = 1.0
+                
+                logprobs_i = torch.stack(traj["action_logprobs_list"]) # (T_i,)
+                batched_old_logprobs[i, :T_i] = logprobs_i
+                
+                lod_start_idx = 0
+                for t in range(T_i):
+                    actions_t = traj["actions_list"][t] # (num_nodes_t, 1)
+                    num_nodes_at_lod = actions_t.shape[0]
+                    if num_nodes_at_lod == 0: continue
+                    
+                    batched_actions_full_tensor[i, lod_start_idx : lod_start_idx + num_nodes_at_lod, :] = actions_t
+                    lod_start_idx += num_nodes_at_lod
+            
+            for ppo_epoch in range(policy_params.ppo_epochs):
+ 
+                current_logprobs_per_lod_batch = accelerator.unwrap_model(policy_model).reevaluate_logprobs(  #accelerator.unwrap_model
+                    batched_image_latents,
+                    batched_actions_full_tensor
+                )
+                
+                advantages_expanded = batched_advantages.unsqueeze(-1) # (B_valid, 1)
+                
+                # (B_valid, T)
+                ratios = torch.exp(current_logprobs_per_lod_batch - batched_old_logprobs)
+                
+                surr1 = ratios * advantages_expanded
+                surr2 = torch.clamp(
+                    ratios, 
+                    1.0 - policy_params.clip_epsilon, 
+                    1.0 + policy_params.clip_epsilon
+                ) * advantages_expanded
+
+                policy_loss = -torch.min(surr1, surr2) # (B_valid, T)
+                
+                policy_loss = policy_loss * timesteps_mask
+                
+                mean_policy_loss = policy_loss.sum() / timesteps_mask.sum()
+
+                optimizer.zero_grad()
+                accelerator.backward(mean_policy_loss)
+                
+                if accelerator.sync_gradients and config.get("clip_grad_norm", None):
+                   accelerator.clip_grad_norm_(policy_model.parameters(), config.clip_grad_norm)
+
+                optimizer.step()
+
+            lr_scheduler.step()
+            policy_logs = {}
+            # if accelerator.is_main_process:
+            policy_logs["train/lr"] = lr_scheduler.get_last_lr()[0]
+            policy_logs["train/total_return"] = accelerator.gather(total_returns).mean().item()
+            policy_logs["train/ppo_loss"] = accelerator.gather(mean_policy_loss).mean().item()
+            policy_logs["train/adv_mean"] = accelerator.gather(advantages_flat).mean().item()
+            policy_logs["train/adv_std"] = accelerator.gather(advantages_flat).std().item()
+
+            for k, v in loss_dict.items():
+                policy_logs["train/" + k] = accelerator.gather(v).mean().item()
+
+            # Log gradient norm before zeroing it.
+            if (
+                accelerator.sync_gradients
+                and (global_step + 1) % config.experiment.log_grad_norm_every == 0
+                and accelerator.is_main_process
+            ):
+                log_grad_norm(policy_model, accelerator, global_step + 1)
+
+            optimizer.zero_grad(set_to_none=True)
+
+
+        if accelerator.sync_gradients:
+            if config.training.use_ema:
+                ema_model.step(policy_model.parameters())
+            batch_time_meter.update(time.time() - end)
+            end = time.time()
+
+            if (global_step + 1) % config.experiment.log_every == 0:
+                samples_per_second_per_gpu = (
+                    config.training.gradient_accumulation_steps * config.training.per_gpu_batch_size / batch_time_meter.val
+                )
+
+                lr = lr_scheduler.get_last_lr()[0]
+
+                logger.info(
+                    f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
+                    f"Batch (t): {batch_time_meter.val:0.4f} "
+                    f"LR: {lr:0.6f} "
+                    f"Step: {global_step + 1} "
+                    f"PPO Loss: {policy_logs['train/ppo_loss']:.4f}, "
+                    f"Return (Quality Impr.): {policy_logs['train/total_return']:.4f}, "
+                    f"Adv Mean: {policy_logs['train/adv_mean']:.4f}, "
+                    f"Adv Std: {policy_logs['train/adv_std']:.4f}, "
+                    f"Recon Loss: {policy_logs['train/reconstruction_loss']:.4f}, "
+                    f"Perceptual Loss: {policy_logs['train/perceptual_loss']:.4f}, "
+                    f"LR: {lr:.2e}"
+                )
+
+                logs = {
+                    "lr": lr,
+                    "lr/generator": lr,
+                    "samples/sec/gpu": samples_per_second_per_gpu,
+                    "time/data_time": data_time_meter.val,
+                    "time/batch_time": batch_time_meter.val,
+                }
+                logs.update(policy_logs)
+
+                accelerator.log(logs, step=global_step + 1)
+
+                # Reset batch / data time meters per log window.
+                batch_time_meter.reset()
+                data_time_meter.reset()
+
+            # Save model checkpoint.
+            if (global_step + 1) % config.experiment.save_every == 0:
+                save_path = save_checkpoint(
+                    policy_model, config.experiment.output_dir, accelerator, global_step + 1, logger=logger)
+                # Wait for everyone to save their checkpoint.
+                accelerator.wait_for_everyone()
+
+            # Generate images.
+
+            ####### NOT DONE YET!!
+            # if (global_step + 1) % config.experiment.generate_every == 0 and accelerator.is_main_process:
+            #     # Store the model parameters temporarily and load the EMA parameters to perform inference.
+            #     if config.training.get("use_ema", False):
+            #         ema_model.store(model.parameters())
+            #         ema_model.copy_to(model.parameters())
+            #     if config.model.type in ["titok", "one_d_piece", "quadtok"]:
+            #         reconstruct_method = reconstruct_images
+            #         additional_args = {}
+
+            #     reconstruct_method(
+            #         model,
+            #         images[:config.training.num_generated_images],
+            #         fnames[:config.training.num_generated_images],
+            #         accelerator,
+            #         global_step + 1,
+            #         config.experiment.output_dir,
+            #         logger=logger,
+            #         config=config,
+            #         pretrained_tokenizer=pretrained_tokenizer,
+            #         **additional_args
+            #     )
+
+            #     if config.training.get("use_ema", False):
+            #         # Switch back to the original model parameters for training.
+            #         ema_model.restore(model.parameters())
+
+
+            # # Evaluate reconstruction.
+            # if config.model.type in ["titok", "one_d_piece", "quadtok"]:
+            #     eval_metrics = eval_reconstruction
+            # else:
+            #     raise ValueError(f"Unsupported model type {config.model.type}")
+            # if eval_dataloader is not None and (global_step + 1) % config.experiment.eval_every == 0:
+            #     logger.info(f"Computing metrics on the validation set.")
+            #     if config.training.get("use_ema", False):
+            #         ema_model.store(model.parameters())
+            #         ema_model.copy_to(model.parameters())
+            #         # Eval for EMA.
+            #         eval_scores = eval_metrics(
+            #             model,
+            #             eval_dataloader,
+            #             accelerator,
+            #             evaluator,
+            #             pretrained_tokenizer=pretrained_tokenizer
+            #         )
+            #         logger.info(
+            #             f"EMA EVALUATION "
+            #             f"Step: {global_step + 1} "
+            #         )
+            #         logger.info(pprint.pformat(eval_scores))
+            #         if accelerator.is_main_process:
+            #             eval_log = {f'ema_eval/'+k: v for k, v in eval_scores.items()}
+            #             accelerator.log(eval_log, step=global_step + 1)
+            #         if config.training.get("use_ema", False):
+            #             # Switch back to the original model parameters for training.
+            #             ema_model.restore(model.parameters())
+            #     else:
+            #         # Eval for non-EMA.
+            #         eval_scores = eval_metrics(
+            #             model,
+            #             eval_dataloader,
+            #             accelerator,
+            #             evaluator,
+            #             pretrained_tokenizer=pretrained_tokenizer
+            #         )
+
+            #         logger.info(
+            #             f"Non-EMA EVALUATION "
+            #             f"Step: {global_step + 1} "
+            #         )
+            #         logger.info(pprint.pformat(eval_scores))
+            #         if accelerator.is_main_process:
+            #             eval_log = {f'eval/'+k: v for k, v in eval_scores.items()}
+            #             accelerator.log(eval_log, step=global_step + 1)
 
                 accelerator.wait_for_everyone()
 

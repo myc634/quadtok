@@ -1,43 +1,45 @@
 experiment:
     project: "dynamic_tokenizer"
-    name: "quadtok_ss256_vq_ts8_vaeinit"
-    output_dir: "checkpoints/quadtok_ss256_vq_ts8_vaeinit"
-    max_train_examples: 685_800_000
+    name: "quadtok_sl256_vae_allps16_rlpolicy_weightinit"
+    output_dir: "checkpoints/quadtok_sl256_vae_allps16_rlpolicy_weightinit"
+    max_train_examples: 685_800_000. #  Converge at 300_000
     save_every: 50_000
     eval_every: 50_000
     generate_every: 500
-    log_every: 50
+    log_every: 5
     log_grad_norm_every: 1_000
     resume: False
     explanation: #"S-256 size TiTok model No Legacy"
-    init_weight: "checkpoints/quadtok_sl256_vae_ts8/checkpoint-200000/ema_model/pytorch_model.bin"
-    init_from_vae: True
+    init_weight: "checkpoints/quadtok_sl256_vae_ts32_unifsample_300kgan/checkpoint-200000/ema_model/pytorch_model.bin"
 
 model:
     type: "quadtok"
     grad_checkpointing: False
     train_policy: False
     vq_model:
-      quantize_mode: vq
+      quantize_mode: vae
       # vit arch
       vit_enc_model_size: "small"
       vit_dec_model_size: "small"
       vit_enc_patch_size: 16
       vit_dec_patch_size: 16
       decoder_token_size: 256
-      # codebook setting
-      codebook_size: 16384
-      use_l2_norm: True
-      commitment_cost: 0.25
-      token_size: 8
+      token_size: 32
     selector:
-      token_size: 8
+      token_size: 32
       num_patch_side_list: [1, 2, 4, 8, 16, 32]
       patch_size_list: [16, 16, 16, 16, 16, 8]
 
+policy_model:
+    type: "quadtok_policy"
+    grad_checkpointing: False
+    train_policy: True
+    model_scale: "small"
+    guaranteed_depth: 3
+
 
 losses:
-    discriminator_start: 200_000
+    discriminator_start: 400_000
     quantizer_weight: 1.0
     discriminator_factor: 1.0
     discriminator_weight: 0.1
@@ -46,6 +48,11 @@ losses:
     reconstruction_loss: "l2"
     reconstruction_weight: 1.0
     lecam_regularization_weight: 0.001
+    kl_weight: 1e-6
+    logvar_init: 0.0
+    sparsity_weight: 1e-2
+    entropy_weight: 1e-2
+    recon_weight: 1.0
 
 dataset:
     type: "simple_image"
@@ -59,7 +66,7 @@ dataset:
         random_crop: True
         random_flip: True
         res_ratio_filtering: True
-        
+
 optimizer:
     name: adamw 
     params:
@@ -69,16 +76,17 @@ optimizer:
         beta2: 0.999
         weight_decay: 1e-4
 
+
 lr_scheduler:
     scheduler: "cosine"
     params:
         learning_rate: ${optimizer.params.learning_rate}
-        warmup_steps: 10_000
+        warmup_steps: 100
         end_lr: 1e-5
 
 training:
     gradient_accumulation_steps: 1
-    per_gpu_batch_size: 64
+    per_gpu_batch_size: 16
     mixed_precision: "bf16"
     enable_tf32: True
     enable_wandb: True

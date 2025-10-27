@@ -37,9 +37,10 @@ from utils.logger import setup_logger
 from utils.train_utils import (
     get_config, create_pretrained_tokenizer, 
     create_model_and_loss_module,
+    create_policy_model,
     create_optimizer, create_lr_scheduler, create_dataloader,
     create_evaluator, auto_resume, save_checkpoint, 
-    train_one_epoch)
+    train_one_epoch_stage2, train_one_epoch_policy)
 
 
 def main():
@@ -94,7 +95,9 @@ def main():
     model, ema_model, loss_module = create_model_and_loss_module(
         config, logger, accelerator, model_type=config.model.type)
 
-    optimizer, discriminator_optimizer = create_optimizer(config, logger, model, loss_module)
+    policy_model, policy_ema_model = create_policy_model(config, logger, accelerator, model_type=config.model.type)
+
+    optimizer, discriminator_optimizer = create_optimizer(config, logger, policy_model, loss_module)
 
     lr_scheduler, discriminator_lr_scheduler = create_lr_scheduler(
         config, logger, accelerator, optimizer, discriminator_optimizer)
@@ -107,11 +110,16 @@ def main():
     # Prepare everything with accelerator.
     logger.info("Preparing model, optimizer and dataloaders")
     # The dataloader are already aware of distributed training, so we don't need to prepare them.
-    model, loss_module, optimizer, discriminator_optimizer, lr_scheduler, discriminator_lr_scheduler = accelerator.prepare(
-        model, loss_module, optimizer, discriminator_optimizer, lr_scheduler, discriminator_lr_scheduler
+    policy_model, loss_module, optimizer, discriminator_optimizer, lr_scheduler, discriminator_lr_scheduler = accelerator.prepare(
+        policy_model, loss_module, optimizer, discriminator_optimizer, lr_scheduler, discriminator_lr_scheduler
     )
     if config.training.use_ema:
-        ema_model.to(accelerator.device)
+        policy_ema_model.to(accelerator.device)
+
+    # freeze the parameter in the pre-trained model
+    model.requires_grad_(False)
+    model.eval()
+    model.to(accelerator.device)
 
     total_batch_size_without_accum = config.training.per_gpu_batch_size * accelerator.num_processes
     num_batches = math.ceil(
@@ -132,13 +140,13 @@ def main():
     first_epoch = 0
 
     global_step, first_epoch = auto_resume(
-        config, logger, accelerator, ema_model, num_update_steps_per_epoch,
+        config, logger, accelerator, policy_ema_model, num_update_steps_per_epoch,
         strict=True)
 
     for current_epoch in range(first_epoch, num_train_epochs):
         accelerator.print(f"Epoch {current_epoch}/{num_train_epochs-1} started.")
-        global_step = train_one_epoch(config, logger, accelerator,
-                            model, ema_model, loss_module,
+        global_step = train_one_epoch_stage2(config, logger, accelerator,
+                            model, policy_model, policy_ema_model, loss_module,
                             optimizer, discriminator_optimizer,
                             lr_scheduler, discriminator_lr_scheduler,
                             train_dataloader, eval_dataloader,

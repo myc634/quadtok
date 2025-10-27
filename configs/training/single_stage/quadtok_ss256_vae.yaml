@@ -1,7 +1,7 @@
 experiment:
     project: "dynamic_tokenizer"
-    name: "quadtok_sl256_vae_allps16"
-    output_dir: "checkpoints/quadtok_sl256_vae_allps16"
+    name: "quadtok_sl256_vae_ts16_unifsample_300kgan"
+    output_dir: "checkpoints/quadtok_sl256_vae_ts16_unifsample_300kgan"
     max_train_examples: 685_800_000. #  Converge at 300_000
     save_every: 50_000
     eval_every: 50_000
@@ -15,6 +15,7 @@ experiment:
 model:
     type: "quadtok"
     grad_checkpointing: False
+    train_policy: False
     vq_model:
       quantize_mode: vae
       # vit arch
@@ -23,14 +24,15 @@ model:
       vit_enc_patch_size: 16
       vit_dec_patch_size: 16
       decoder_token_size: 256
+      token_size: 16
     selector:
-      token_size: 64
+      token_size: 16
       num_patch_side_list: [1, 2, 4, 8, 16, 32]
       patch_size_list: [16, 16, 16, 16, 16, 8]
 
 
 losses:
-    discriminator_start: 200_000
+    discriminator_start: 300_000
     quantizer_weight: 1.0
     discriminator_factor: 1.0
     discriminator_weight: 0.1
@@ -39,7 +41,7 @@ losses:
     reconstruction_loss: "l2"
     reconstruction_weight: 1.0
     lecam_regularization_weight: 0.001
-    kl_weight: 1e-8
+    kl_weight: 1e-6
     logvar_init: 0.0
 
 dataset:

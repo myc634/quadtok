@@ -85,7 +85,7 @@ from accelerate.utils import set_seed
 from accelerate import Accelerator
 
 from utils.train_utils import create_model, create_dataloader, auto_resume, create_evaluator
-from modeling.utils import build_quadtree, _copy_subtree_to_depth, _get_nodes_at_level, build_quadtree, build_random_quadtree
+from modeling.utils import build_quadtree, _copy_subtree_to_depth, _get_nodes_at_level, build_quadtree, build_random_quadtree, build_probabilistic_quadtree
 
 def image_generator(config, logger, accelerator):
     config.training.per_gpu_batch_size = 1
@@ -188,10 +188,10 @@ def main(args):
 
         # step_tree_structure = copy.deepcopy(tree_structure)
         latent_feats = accelerator.unwrap_model(model).encode(image)
-        tree_structure = build_random_quadtree(model.num_patch_side_list, 4)
+        tree_structure = build_probabilistic_quadtree(model.num_patch_side_list, guaranteed_depth=3, expansion_probs=[0.7, 0.7])
         z = accelerator.unwrap_model(model).selector(latent_feats, tree_structure)
         token_num += z.shape[-1]
-        z_quantized, model_dict = accelerator.unwrap_model(model).quantize(z)#.sample()
+        z_quantized = accelerator.unwrap_model(model).quantize(z).sample()
         reconstructed_images = accelerator.unwrap_model(model).decode(z_quantized.permute(0, 3, 2, 1).squeeze(2).contiguous(), tree_structure)
         # reconstructed_images, model_dict = accelerator.unwrap_model(model)(image)
         reconstructed_images = torch.clamp(reconstructed_images, 0.0, 1.0)
@@ -203,8 +203,8 @@ def main(args):
             evaluator.update(image, reconstructed_images, None)
         else:
             evaluator.update(image, reconstructed_images, model_dict["min_encoding_indices"])
-        # if count == 1000:
-        #     break
+        if count == 1000:
+            break
     print(token_num / count)
     print(evaluator.result())
 

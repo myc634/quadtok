@@ -21,13 +21,38 @@ Reference:
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from collections import OrderedDict
-import einops
+import copy
 from typing import Optional
 from einops.layers.torch import Rearrange
 from modeling.modules.attention import RopeTransformerBlock, precompute_freqs_cis
 from torch.utils.checkpoint import checkpoint
-from modeling.utils import _get_nodes_at_level
+from modeling.utils import _get_nodes_at_level, QuadTreeNode, build_quadtree
+import time
+from collections import defaultdict
+
+
+
+def scatter_patches(
+    canvas: torch.Tensor,
+    patches: torch.Tensor,
+    batch_coords: torch.Tensor,
+    y_starts: torch.Tensor,
+    x_starts: torch.Tensor,
+    patch_size: int
+):
+    N, C, _, _ = patches.shape
+    device = patches.device
+    patch_y_offsets = torch.arange(patch_size, device=device).view(patch_size, 1)
+    patch_x_offsets = torch.arange(patch_size, device=device).view(1, patch_size)
+
+    y_dest = y_starts.view(N, 1, 1) + patch_y_offsets
+    x_dest = x_starts.view(N, 1, 1) + patch_x_offsets
+
+    canvas[batch_coords[:, None, None], :, y_dest, x_dest] = patches.permute(0, 2, 3, 1).contiguous()
+    
+    return canvas
 
 
 class ResidualAttentionBlock(nn.Module):
@@ -57,16 +82,18 @@ class ResidualAttentionBlock(nn.Module):
     def attention(
             self,
             x: torch.Tensor,
+            key_padding_mask: Optional[torch.Tensor] = None,
             attention_mask: Optional[torch.Tensor] = None
     ):
-        return self.attn(x, x, x, attn_mask=attention_mask, need_weights=False)[0]
+        return self.attn(x, x, x, key_padding_mask=key_padding_mask, attn_mask=attention_mask, need_weights=False)[0]
 
     def forward(
             self,
             x: torch.Tensor,
+            key_padding_mask: Optional[torch.Tensor] = None,
             attention_mask: Optional[torch.Tensor] = None
     ):
-        attn_output = self.attention(x=self.ln_1(x), attention_mask=attention_mask)
+        attn_output = self.attention(x=self.ln_1(x), attention_mask=attention_mask, key_padding_mask=key_padding_mask)
         x = x + attn_output
         if self.mlp_ratio > 0:
             x = x + self.mlp(self.ln_2(x))
@@ -411,7 +438,6 @@ class QuadTokEncoder(nn.Module):
         x = self.out_proj(x)
 
         return x
-    
 
 class QuadTokDecoder(nn.Module):
     def __init__(self, config):
@@ -423,11 +449,28 @@ class QuadTokDecoder(nn.Module):
         self.grid_size = self.image_size // self.patch_size
         self.model_size = config.model.vq_model.vit_dec_model_size
         self.token_size = config.model.selector.token_size
+        self.train_policy = config.model.get("train_policy", False)
 
         self.num_patch_side_list = config.model.selector.num_patch_side_list
         self.patch_size_list = config.model.selector.patch_size_list
         self.num_lod = len(config.model.selector.num_patch_side_list)
         # self.decoder_token_size = config.model.vq_model.decoder_token_size
+
+        self.full_tree_root = build_quadtree(self.num_patch_side_list)
+        ordered_full_nodes = self._get_ordered_nodes(self.full_tree_root)
+        self.ordered_full_nodes = ordered_full_nodes
+
+        lod_len_mapping = defaultdict(int)
+        for node in self.ordered_full_nodes:
+            lod_len_mapping[node.lod_level] += 1
+        total_nodes_count = 0
+        self.lod_start_indices = {}
+        for lod_idx, num_patches in enumerate(self.num_patch_side_list):
+            total_patches = num_patches ** 2
+            num_nodes_at_lod = lod_len_mapping[lod_idx] 
+            self.lod_start_indices[lod_idx] = total_nodes_count
+            total_nodes_count += total_patches
+ 
 
         self.width = {
                 "small": 512,
@@ -549,7 +592,6 @@ class QuadTokDecoder(nn.Module):
                 for node in nodes_in_lod:
                     latent_patch = unpatch_fn(node.node_feature)
                     
-                    
                     num_patches_per_side = self.num_patch_side_list[lod_idx]
                     row, col = divmod(node.patch_index, num_patches_per_side)
                     
@@ -558,13 +600,135 @@ class QuadTokDecoder(nn.Module):
 
                     current_lod_patch_canvas[:, :, y_start:y_end, x_start:x_end] = latent_patch
 
-
-            
             final_lod_feature_map = upsampled_map + current_lod_patch_canvas
             previous_feature_map = final_lod_feature_map
             
         return previous_feature_map
 
+    def hierarchical_decode_vectorized(self, features, lods, indices):
+
+        batch_size = features.shape[0]
+        device = features.device
+        dtype = features.dtype
+        previous_feature_map = None
+
+        for lod_idx in range(self.num_lod):
+            channels = self.decoder_channels[lod_idx]
+            patch_size = self.patch_size_list[lod_idx]
+
+            if lod_idx == 0:
+                side_len = self.num_patch_side_list[0] * self.patch_size_list[0]
+                upsampled_map = torch.zeros(batch_size, channels, side_len, side_len, device=device, dtype=dtype)
+            else:
+                upsampled_map = self.upsamplers[lod_idx - 1](previous_feature_map)
+            current_lod_patch_canvas = torch.zeros_like(upsampled_map)
+
+            lod_mask = (lods == lod_idx) & (lods != -1)
+            if lod_mask.any():
+                batch_coords = torch.nonzero(lod_mask, as_tuple=True)[0]
+                features_lod = features[lod_mask]
+                patch_idx_lod = indices[lod_mask]
+                
+
+                unpatched_features = self.latent_unpatchers[str(lod_idx)](features_lod)
+
+                num_patches_per_side = self.num_patch_side_list[lod_idx]
+
+                rows = patch_idx_lod // num_patches_per_side
+                cols = patch_idx_lod % num_patches_per_side
+
+                y_starts, x_starts = rows * patch_size, cols * patch_size
+                
+                current_lod_patch_canvas = scatter_patches(
+                    current_lod_patch_canvas,
+                    unpatched_features.to(current_lod_patch_canvas.dtype),
+                    batch_coords,
+                    y_starts,
+                    x_starts,
+                    patch_size
+                )
+
+            final_lod_feature_map = upsampled_map + current_lod_patch_canvas
+            previous_feature_map = final_lod_feature_map
+            
+        return previous_feature_map
+
+    def hierarchical_latent_decode_by_dict(self, feature, tree_dict, all_prob):
+        batch_size = feature.shape[0]
+        device = self.latent_token_positional_embedding.device
+        dtype = self.latent_token_positional_embedding.dtype
+
+        previous_feature_map = None
+        for lod_idx in range(self.num_lod):
+            # lod_start_idx = self.lod_start_indices[lod_idx]
+            channels = self.decoder_channels[lod_idx]
+            patch_size = self.patch_size_list[lod_idx]
+            if lod_idx == 0:
+                upsampled_map = torch.zeros(batch_size, channels, patch_size, patch_size, device=device, dtype=dtype)
+            else:
+                upsampler = self.upsamplers[lod_idx - 1]
+                upsampled_map = upsampler(previous_feature_map)
+
+            current_lod_patch_canvas = torch.zeros(batch_size, channels, upsampled_map.shape[-2], upsampled_map.shape[-1], device=device, dtype=dtype)
+
+            node_idx_lod = tree_dict[lod_idx]
+            lod_start_idx = sum(len(tree_dict[used_lod_idx]) for used_lod_idx in range(lod_idx))
+            if len(node_idx_lod) != 0:
+                unpatch_fn = self.latent_unpatchers[str(lod_idx)]
+                for feat_idx, node_idx in enumerate(node_idx_lod):
+                    latent_patch = unpatch_fn(feature[:, lod_start_idx + feat_idx]) * all_prob[lod_start_idx + feat_idx]
+                    
+                    num_patches_per_side = self.num_patch_side_list[lod_idx]
+                    row, col = divmod(node_idx, num_patches_per_side)
+                    
+                    y_start, x_start = row * patch_size, col * patch_size
+                    y_end, x_end = y_start + patch_size, x_start + patch_size
+
+                    current_lod_patch_canvas[:, :, y_start:y_end, x_start:x_end] = latent_patch
+
+            final_lod_feature_map = upsampled_map + current_lod_patch_canvas
+            previous_feature_map = final_lod_feature_map
+            
+        return previous_feature_map
+
+    def hierarchical_latent_decode_by_actions(self, feature, action_dict, prob_dict):
+        batch_size = feature.shape[0]
+        device = self.latent_token_positional_embedding.device
+        dtype = self.latent_token_positional_embedding.dtype
+        breakpoint()
+        previous_feature_map = None
+        for lod_idx in range(self.num_lod):
+            # lod_start_idx = self.lod_start_indices[lod_idx]
+            channels = self.decoder_channels[lod_idx]
+            patch_size = self.patch_size_list[lod_idx]
+            if lod_idx == 0:
+                upsampled_map = torch.zeros(batch_size, channels, patch_size, patch_size, device=device, dtype=dtype)
+            else:
+                upsampler = self.upsamplers[lod_idx - 1]
+                upsampled_map = upsampler(previous_feature_map)
+
+            current_lod_patch_canvas = torch.zeros(batch_size, channels, upsampled_map.shape[-2], upsampled_map.shape[-1], device=device, dtype=dtype)
+
+            node_idx_lod = tree_dict[lod_idx]
+            lod_start_idx = sum(len(tree_dict[used_lod_idx]) for used_lod_idx in range(lod_idx))
+            if len(node_idx_lod) != 0:
+                unpatch_fn = self.latent_unpatchers[str(lod_idx)]
+                for feat_idx, node_idx in enumerate(node_idx_lod):
+                    latent_patch = unpatch_fn(feature[:, lod_start_idx + feat_idx]) * all_prob[lod_start_idx + feat_idx]
+                    
+                    num_patches_per_side = self.num_patch_side_list[lod_idx]
+                    row, col = divmod(node_idx, num_patches_per_side)
+                    
+                    y_start, x_start = row * patch_size, col * patch_size
+                    y_end, x_end = y_start + patch_size, x_start + patch_size
+
+                    current_lod_patch_canvas[:, :, y_start:y_end, x_start:x_end] = latent_patch
+
+            final_lod_feature_map = upsampled_map + current_lod_patch_canvas
+            previous_feature_map = final_lod_feature_map
+            
+        return previous_feature_map
+    
     def update_features_in_tree(
         self,
         updated_features,
@@ -575,7 +739,7 @@ class QuadTokDecoder(nn.Module):
             feature_slice = updated_features[:, i, :]
             node.node_feature = feature_slice
 
-    def forward(self, z_quantized, tree_structure):
+    def _forward_reconstruction(self, z_quantized, tree_structure):
         batch_size, seq_len, _ = z_quantized.shape
         z_quantized = self.decoder_embed(z_quantized)
         ordered_nodes = self._get_ordered_nodes(tree_structure)
@@ -606,6 +770,87 @@ class QuadTokDecoder(nn.Module):
 
         reconstructd_image = self.conv_out(upsampled_latent)
         return reconstructd_image
+    
+    def _forward_optimize(self, z_quantized, decision_node, actions_list, action_idx_mapping):
+        batch_size, seq_len, _ = z_quantized.shape
+        z_quantized = self.decoder_embed(z_quantized)
+        lod_embeddings = []
+        actions, opt_probs = actions_list
+        for lod_idx in range(self.num_lod):
+            if lod_idx in decision_node.keys():
+                decision_idx_list = decision_node[lod_idx]
+                for index in decision_idx_list:
+                    device = self.token_incides_embedding_dict[str(lod_idx)].weight.device
+                    index_tensor = torch.tensor([index], dtype=torch.long, device=device)
+                    embedding = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)
+                    lod_embeddings.append(embedding)
+            elif lod_idx == max(decision_node.keys()) + 1:
+                index_tensor = torch.arange(actions.shape[0], dtype=torch.long, device=device)
+                embedding_readout = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)
+                embedding_readout = embedding_readout * actions.unsqueeze(-1)
+                embedding = embedding_readout[actions.bool()]
+                lod_embeddings.append(embedding)
+
+        flat_token_sequence = torch.cat(lod_embeddings, dim=0)
+        flat_token_sequence = flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
+
+        all_prob = torch.ones(seq_len, device=device)
+        all_prob[-opt_probs.shape[0]:] = opt_probs
+
+        x = z_quantized + flat_token_sequence + self.latent_token_positional_embedding[:seq_len]
+
+        x = self.ln_pre(x)
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        for i in range(self.num_layers):
+            x = self.transformer[i](x)
+        x = x.permute(1, 0, 2)  # LND -> NLD
+        x = self.ln_post(x)
+        # x = self.attn_out(x)
+
+        tmp_tree_dict = copy.deepcopy(decision_node)
+        tmp_tree_dict.update({max(decision_node.keys()) + 1:  torch.tensor(action_idx_mapping, device=actions.device)[actions.bool()].tolist()})
+        # tree_structure = construct_tree_from_dict(tmp_tree_dict, self.patch_size_list)
+        # self.update_features_in_tree(x, tree_structure)
+
+        upsampled_latent = self.hierarchical_latent_decode_by_dict(x, tmp_tree_dict, all_prob)
+
+        reconstructd_image = self.conv_out(upsampled_latent)
+        return reconstructd_image
+
+    def _forward_policy(self, z_quantized, policy_result, prob_result):
+        batch_size, seq_len, _ = z_quantized.shape
+        z_quantized = self.decoder_embed(z_quantized)
+        lod_embeddings = []
+        for lod_idx in range(self.num_lod):
+            actions = policy_result[lod_idx]
+            index_tensor = torch.arange(actions.shape[0], dtype=torch.long, device=device)
+            embedding_readout = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)
+            embedding_readout = embedding_readout * actions.unsqueeze(-1)
+            embedding = embedding_readout[actions.bool()]
+            lod_embeddings.append(embedding)
+
+        flat_token_sequence = torch.cat(lod_embeddings, dim=0)
+        flat_token_sequence = flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
+        x = z_quantized + flat_token_sequence + self.latent_token_positional_embedding[:seq_len]
+
+        x = self.ln_pre(x)
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        for i in range(self.num_layers):
+            x = self.transformer[i](x)
+        x = x.permute(1, 0, 2)  # LND -> NLD
+        x = self.ln_post(x)
+        
+        upsampled_latent = self.hierarchical_latent_decode_by_actions(x, policy_result, prob_result)
+        reconstructed_image = self.conv_out(upsampled_latent)
+        
+        return reconstructed_image
+
+
+    def forward(self, z_quantized, tree_structure):
+        if self.train_policy:
+            return self._forward_policy(z_quantized, tree_structure)
+        else:
+            return self._forward_reconstruction(z_quantized, tree_structure)
         
 
 
@@ -622,6 +867,8 @@ class QuadTokSelctor(nn.Module):
 
         self.model_size = config.model.vq_model.vit_enc_model_size
         self.token_size = config.model.selector.token_size
+
+        self.train_policy = config.model.get("train_policy", False)
 
         if config.model.vq_model.get("quantize_mode", "vq") == "vae":
             self.token_size = self.token_size * 2 # needs to split into mean and std
@@ -683,8 +930,7 @@ class QuadTokSelctor(nn.Module):
             
         return ordered_nodes
 
-
-    def forward(self, latent_feats, tree_structure):
+    def _forward_reconstruction(self, latent_feats, tree_structure):
         batch_size = latent_feats.shape[0]
         ordered_nodes = self._get_ordered_nodes(tree_structure)
 
@@ -714,3 +960,79 @@ class QuadTokSelctor(nn.Module):
 
         x = x.permute(0, 2, 1).unsqueeze(2).contiguous()
         return x
+    
+    def _forward_policy(self, latent_feats, policy_result):
+        batch_size = latent_feats.shape[0]
+        device = latent_feats.device
+        lod_embeddings = []
+        for lod_idx in range(self.num_lod):
+            actions = policy_result[lod_idx]
+            index_tensor = torch.arange(actions.shape[1], dtype=torch.long, device=device)
+            embedding_readout = self.token_incides_embedding_dict[str(lod_idx)](index_tensor).unsqueeze(0).repeat(batch_size, 1, 1)
+            embedding_readout = embedding_readout * actions
+            embedding = embedding_readout[actions.bool().squeeze(-1)]
+            lod_embeddings.append(embedding)
+
+        flat_token_sequence = torch.cat(lod_embeddings, dim=0)
+        flat_token_sequence = flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
+
+        seq_len = flat_token_sequence.shape[1]
+        flat_token_sequence += self.latent_token_positional_embedding[:seq_len]
+        x = torch.cat([latent_feats, flat_token_sequence], dim=1)
+
+        x = self.ln_pre(x)
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        for i in range(self.num_layers):
+            x = self.transformer[i](x)
+        x = x.permute(1, 0, 2)  # LND -> NLD
+        x = x[:, -seq_len:]
+        x = self.ln_post(x)
+        x = self.out_proj(x)
+
+        x = x.permute(0, 2, 1).unsqueeze(2).contiguous()
+        
+        return policy_result
+
+    def _forward_optimize(self, latent_feats, decision_node, actions):
+        batch_size = latent_feats.shape[0]
+        lod_embeddings = []
+        for lod_idx in range(self.num_lod):
+            if lod_idx in decision_node.keys():
+                decision_idx_list = decision_node[lod_idx]
+                for index in decision_idx_list:
+                    device = self.token_incides_embedding_dict[str(lod_idx)].weight.device
+                    index_tensor = torch.tensor([index], dtype=torch.long, device=device)
+                    embedding = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)
+                    lod_embeddings.append(embedding)
+            elif lod_idx ==  max(decision_node.keys()) + 1:
+                index_tensor = torch.arange(actions.shape[0], dtype=torch.long, device=device)
+                embedding_readout = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)
+                embedding_readout = embedding_readout * actions.unsqueeze(-1)
+                embedding = embedding_readout[actions.bool()]
+                lod_embeddings.append(embedding)
+
+        flat_token_sequence = torch.cat(lod_embeddings, dim=0)
+        flat_token_sequence = flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
+
+        seq_len = flat_token_sequence.shape[1]
+        flat_token_sequence += self.latent_token_positional_embedding[:seq_len]
+        x = torch.cat([latent_feats, flat_token_sequence], dim=1)
+
+        x = self.ln_pre(x)
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        for i in range(self.num_layers):
+            x = self.transformer[i](x)
+        x = x.permute(1, 0, 2)  # LND -> NLD
+        x = x[:, -seq_len:]
+        x = self.ln_post(x)
+        x = self.out_proj(x)
+
+        x = x.permute(0, 2, 1).unsqueeze(2).contiguous()
+        return x
+
+
+    def forward(self, latent_feats, tree_structure=None, policy_output=None):
+        if self.train_policy:
+            return self._forward_policy(latent_feats, policy_output)
+        else:
+            return self._forward_reconstruction(latent_feats, tree_structure)

@@ -1,6 +1,10 @@
 
 
 
+sudo TORCH_DISTRIBUTED_DEBUG=DETAIL WANDB_MODE=disabled accelerate launch --mixed_precision=bf16 --num_machines=1 --num_processes=1 --machine_rank=0 --main_process_ip=127.0.0.1 --main_process_port=2345 --same_network scripts/train_tokenizer.py config=configs/training/policy_stage/quadtok_ss256_vae_policy.yaml
+
+sudo TORCH_DISTRIBUTED_DEBUG=DETAIL WANDB_MODE=disabled accelerate launch --mixed_precision=bf16 --num_machines=1 --num_processes=1 --machine_rank=0 --main_process_ip=127.0.0.1 --main_process_port=2345 --same_network scripts/train_tokenizer_policy.py config=configs/training/policy_stage/quadtok_ss256_vae_policy.yaml
+
 sudo TORCH_DISTRIBUTED_DEBUG=DETAIL WANDB_MODE=disabled accelerate launch --mixed_precision=bf16 --num_machines=1 --num_processes=1 --machine_rank=0 --main_process_ip=127.0.0.1 --main_process_port=2345 --same_network scripts/train_tokenizer.py config=configs/training/single_stage/quadtok_ss256_vq.yaml
 
 sudo TORCH_DISTRIBUTED_DEBUG=DETAIL WANDB_MODE=disabled accelerate launch --mixed_precision=bf16 --num_machines=1 --num_processes=1 --machine_rank=0 --main_process_ip=127.0.0.1 --main_process_port=2345 --same_network scripts/train_tokenizer_video.py config=configs/training/single_stage/titok_sl256_vq8k_video_vae_overfitting.yaml
@@ -10,7 +14,24 @@ from huggingface_hub import snapshot_download
 snapshot_download(repo_id="yucornetto/tokenizer_titok_bl128_vq8k_imagenet", local_dir="/mnt/shared-storage-user/jianglihan/myc/code/One-D-Piece/pretrained_weight/titok_bl128_vq8k")
 
 rjob submit \
-    --name=vae_ss_vq_ts8_cs16384  \
+    --name=policy_fromscartch  \
+    --gpu=8 \
+    --memory=1600000 \
+    --cpu=160 \
+    --namespace ailab-idc3 \
+    --charged-group=idc3_gpu \
+    --private-machine=group \
+    --mount=gpfs://gpfs1/jianglihan:/mnt/shared-storage-user/jianglihan \
+    --mount=gpfs://gpfs1/idc2-shared:/mnt/shared-storage-user/idc2-shared \
+    --image=registry.h.pjlab.org.cn/ailab-idc2-idc2_gpu/jianglihan:base \
+    --custom-resources=brainpp.cn/fuse=1 \
+    -P 1 \
+    --host-network=true \
+    -e DISTRIBUTED_JOB=false \
+    -- bash -exc /mnt/shared-storage-user/jianglihan/myc/code/quadtok2/job_push_train_policy.sh
+
+rjob submit \
+    --name=policy_gd3_final1000  \
     --gpu=4 \
     --memory=800000 \
     --cpu=80 \
@@ -24,24 +45,7 @@ rjob submit \
     -P 1 \
     --host-network=true \
     -e DISTRIBUTED_JOB=false \
-    -- bash -exc /mnt/shared-storage-user/jianglihan/myc/code/One-D-Piece/job_push_train.sh
-
-rjob submit \
-    --name=vae_ss_vq_ts8_cs16384_mxps16  \
-    --gpu=4 \
-    --memory=800000 \
-    --cpu=80 \
-    --charged-group=idc2_gpu \
-    --private-machine=group \
-    --mount=gpfs://gpfs1/jianglihan:/mnt/shared-storage-user/jianglihan \
-    --mount=gpfs://gpfs1/idc2-shared:/mnt/shared-storage-user/idc2-shared \
-    --image=registry.h.pjlab.org.cn/ailab-idc2-idc2_gpu/jianglihan:base \
-    --custom-resources=brainpp.cn/fuse=1 \
-    -P 1 \
-    --host-network=true \
-    -e DISTRIBUTED_JOB=false \
-    -- bash -exc /mnt/shared-storage-user/jianglihan/myc/code/One-D-Piece/job_push_train.sh
-
+    -- bash -exc /mnt/shared-storage-user/jianglihan/myc/code/quadtok/job_push_train_policy.sh
 
 
 sudo WANDB_MODE=disabled accelerate launch \
@@ -53,7 +57,20 @@ sudo WANDB_MODE=disabled accelerate launch \
     --main_process_port=12389 \
     --same_network \
     scripts/eval_tokenizer.py \
-        --work_dir checkpoints/quadtok_ss256_vq_allps16_tokensize16 \
+        --work_dir checkpoints/quadtok_sl256_vae_ts32_unifsample_300kgan \
+        --output_dir generated/quadtok_sl256
+
+
+sudo WANDB_MODE=disabled accelerate launch \
+    --mixed_precision=bf16 \
+    --num_machines=1 \
+    --num_processes=1 \
+    --machine_rank=0 \
+    --main_process_ip=127.0.0.1 \
+    --main_process_port=12389 \
+    --same_network \
+    scripts/optimize_quadtree_tokenizer.py \
+        --config_dir configs/training/policy_stage/quadtok_ss256_vae_opt.yaml \
         --output_dir generated/quadtok_sl256
 
 

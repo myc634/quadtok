@@ -27,6 +27,23 @@ from torch.amp import autocast
 from .perceptual_loss import PerceptualLoss
 from .discriminator import NLayerDiscriminator
 
+def get_linear_decay_entropy_weight(
+    global_step: int, 
+    initial_weight: float = 0.01, 
+    final_weight: float = 0.0, 
+    decay_steps: int = 50000
+) -> float:
+
+    if decay_steps <= 0:
+        return final_weight
+        
+    if global_step >= decay_steps:
+        return final_weight
+    else:
+        decay_fraction = global_step / decay_steps
+        current_weight = initial_weight - (initial_weight - final_weight) * decay_fraction
+        return current_weight
+
 
 def hinge_d_loss(logits_real: torch.Tensor, logits_fake: torch.Tensor) -> torch.Tensor:
     """Hinge loss for discrminator.
@@ -60,6 +77,43 @@ def compute_lecam_loss(
     lecam_loss = torch.mean(torch.pow(F.relu(logits_real_mean - ema_logits_fake_mean), 2))
     lecam_loss += torch.mean(torch.pow(F.relu(ema_logits_real_mean - logits_fake_mean), 2))
     return lecam_loss
+
+class SpatiallyWeightedMSELoss(nn.Module):
+    def __init__(self, kernel_size=16, temperature=1.0, reduction='mean'):
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.temperature = temperature
+        self.reduction = reduction
+        self.pool = nn.AvgPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size // 2, count_include_pad=False)
+
+    def forward(self, recon, target):
+        if recon.shape != target.shape:
+            raise ValueError(f"Input shapes must match: {recon.shape} vs {target.shape}")
+            
+        sq_error = ((recon - target)**2).mean(dim=1, keepdim=True) 
+
+        with torch.no_grad():
+            local_mse_map = self.pool(sq_error) 
+
+            B, _, H, W = local_mse_map.shape
+            flat_logits = (local_mse_map / self.temperature).view(B, 1, -1)
+            spatial_weights = F.softmax(flat_logits, dim=-1)
+            weights = spatial_weights.view(B, 1, H, W) * (H * W) 
+
+        weighted_sq_error = sq_error * weights.detach() 
+
+        if self.reduction == 'mean':
+            loss = torch.mean(weighted_sq_error)
+        elif self.reduction == 'sum':
+            loss = torch.sum(weighted_sq_error)
+        else:
+            loss = weighted_sq_error 
+
+        return loss
+
+# --- 在您的训练循环中 ---
+# weighted_mse_loss_fn = SpatiallyWeightedMSELoss(kernel_size=16, temperature=0.1).to(device)
+# loss = weighted_mse_loss_fn(reconstructed_images, original_images)
 
 
 class ReconstructionLoss_Stage1(torch.nn.Module):
@@ -350,6 +404,65 @@ class ReconstructionLoss_Single_Stage(ReconstructionLoss_Stage2):
 
         return total_loss, loss_dict
 
+
+class ReconstructionLoss_Reward(torch.nn.Module):
+    def __init__(
+        self,
+        config
+    ):
+        """Initializes the losses module.
+
+        Args:
+            config: A dictionary, the configuration for the model and everything else.
+        """
+        super().__init__()
+        loss_config = config.losses
+
+        self.reconstruction_loss = loss_config.reconstruction_loss
+        self.reconstruction_weight = loss_config.reconstruction_weight
+        self.quantizer_weight = loss_config.quantizer_weight
+        self.perceptual_loss = PerceptualLoss(
+            loss_config.perceptual_loss).eval()
+        self.perceptual_weight = loss_config.perceptual_weight
+
+        self.config = config
+
+    @autocast('cuda', enabled=False)
+    def forward(self,
+                inputs: torch.Tensor,
+                reconstructions: torch.Tensor,
+                ) -> Tuple[torch.Tensor, Mapping[Text, torch.Tensor]]:
+        # Both inputs and reconstructions are in range [0, 1].
+        inputs = inputs.float()
+        reconstructions = reconstructions.float()
+
+        inputs = inputs.contiguous()
+        reconstructions = reconstructions.contiguous()
+        if self.reconstruction_loss == "l1":
+            reconstruction_loss_per_item = F.l1_loss(inputs, reconstructions, reduction="none")
+        elif self.reconstruction_loss == "l2":
+            reconstruction_loss_per_item = F.mse_loss(inputs, reconstructions, reduction="none")
+        else:
+            raise ValueError(f"Unsuppored reconstruction_loss {self.reconstruction_loss}")
+        
+        reconstruction_loss_per_item = reconstruction_loss_per_item.mean(dim=[1, 2, 3])
+        reconstruction_loss = reconstruction_loss_per_item * self.reconstruction_weight
+
+        # Compute perceptual loss.
+        perceptual_loss = self.perceptual_loss(inputs, reconstructions).squeeze()
+
+        total_loss = (
+            reconstruction_loss
+            + self.perceptual_weight * perceptual_loss
+        )
+        loss_dict = dict(
+            total_loss=total_loss.mean().clone().detach(),
+            reconstruction_loss=reconstruction_loss.mean().detach(),
+            perceptual_loss=(self.perceptual_weight * perceptual_loss).mean().detach(),
+        )
+
+        return total_loss, loss_dict
+   
 
 
 class MLMLoss(torch.nn.Module):
