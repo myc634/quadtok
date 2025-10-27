@@ -26,12 +26,60 @@ from collections import OrderedDict
 import copy
 from typing import Optional
 from einops.layers.torch import Rearrange
-from modeling.modules.attention import RopeTransformerBlock, precompute_freqs_cis
+from modeling.modules.attention import RopeTransformerBlock, precompute_freqs_cis, Attention
 from torch.utils.checkpoint import checkpoint
 from modeling.utils import _get_nodes_at_level, QuadTreeNode, build_quadtree
 import time
 from collections import defaultdict
+import math
 
+
+def gumbel_softmax(logits, temperature=1.0, hard=False, dim=-1):
+    """
+    Gumbel-Softmax sampling with straight-through estimator.
+    
+    Args:
+        logits: Input logits tensor
+        temperature: Temperature parameter for Gumbel-Softmax
+        hard: If True, use straight-through estimator (hard sampling)
+        dim: Dimension along which to apply softmax
+    
+    Returns:
+        Sampled tensor with same shape as logits
+    """
+    # Sample from Gumbel distribution
+    gumbel_noise = -torch.log(-torch.log(torch.rand_like(logits) + 1e-20) + 1e-20)
+    
+    # Add Gumbel noise to logits
+    y = logits + gumbel_noise
+    
+    # Apply softmax with temperature
+    y_soft = F.softmax(y / temperature, dim=dim)
+    
+    if hard:
+        # Straight-through estimator: use hard samples in forward pass
+        # but soft samples in backward pass
+        index = y_soft.max(dim, keepdim=True)[1]
+        y_hard = torch.zeros_like(logits).scatter_(dim, index, 1.0)
+        ret = y_hard - y_soft.detach() + y_soft
+    else:
+        ret = y_soft
+    
+    return ret
+
+
+def straight_through_estimator(probs, hard_samples):
+    """
+    Straight-through estimator for discrete sampling.
+    
+    Args:
+        probs: Continuous probabilities (used for gradients)
+        hard_samples: Discrete samples (used for forward pass)
+    
+    Returns:
+        Tensor that uses hard samples in forward pass but probs in backward pass
+    """
+    return hard_samples.detach() + probs - probs.detach()
 
 
 def scatter_patches(
@@ -99,15 +147,18 @@ class ResidualAttentionBlock(nn.Module):
             x = x + self.mlp(self.ln_2(x))
         return x
 
-if hasattr(torch.nn.functional, 'scaled_dot_product_attention'):
-    ATTENTION_MODE = 'flash'
-else:
-    try:
-        import xformers
-        import xformers.ops
-        ATTENTION_MODE = 'xformers'
-    except:
-        ATTENTION_MODE = 'math'
+def get_attention_mode():
+    if hasattr(torch.nn.functional, 'scaled_dot_product_attention'):
+        return 'flash'
+    else:
+        try:
+            import xformers
+            import xformers.ops
+            return 'xformers'
+        except:
+            return 'math'
+
+ATTENTION_MODE = get_attention_mode()
 print(f'attention mode is {ATTENTION_MODE}')
 
 
@@ -135,7 +186,7 @@ def drop_path(x, drop_prob: float = 0., training: bool = False):
 class DropPath(nn.Module):
     """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
     """
-    def __init__(self, drop_prob=None):
+    def __init__(self, drop_prob=0.0):
         super(DropPath, self).__init__()
         self.drop_prob = drop_prob
 
@@ -695,12 +746,12 @@ class QuadTokDecoder(nn.Module):
         batch_size = feature.shape[0]
         device = self.latent_token_positional_embedding.device
         dtype = self.latent_token_positional_embedding.dtype
-        breakpoint()
+        
         previous_feature_map = None
         for lod_idx in range(self.num_lod):
-            # lod_start_idx = self.lod_start_indices[lod_idx]
             channels = self.decoder_channels[lod_idx]
             patch_size = self.patch_size_list[lod_idx]
+            
             if lod_idx == 0:
                 upsampled_map = torch.zeros(batch_size, channels, patch_size, patch_size, device=device, dtype=dtype)
             else:
@@ -709,25 +760,161 @@ class QuadTokDecoder(nn.Module):
 
             current_lod_patch_canvas = torch.zeros(batch_size, channels, upsampled_map.shape[-2], upsampled_map.shape[-1], device=device, dtype=dtype)
 
-            node_idx_lod = tree_dict[lod_idx]
-            lod_start_idx = sum(len(tree_dict[used_lod_idx]) for used_lod_idx in range(lod_idx))
-            if len(node_idx_lod) != 0:
-                unpatch_fn = self.latent_unpatchers[str(lod_idx)]
-                for feat_idx, node_idx in enumerate(node_idx_lod):
-                    latent_patch = unpatch_fn(feature[:, lod_start_idx + feat_idx]) * all_prob[lod_start_idx + feat_idx]
-                    
+            # Get actions and probabilities for current LOD
+            if lod_idx in action_dict:
+                actions = action_dict[lod_idx]  # Shape: [batch_size, num_patches]
+                probs = prob_dict[lod_idx] if lod_idx in prob_dict else torch.ones_like(actions)
+                
+                if actions.numel() > 0:
+                    unpatch_fn = self.latent_unpatchers[str(lod_idx)]
                     num_patches_per_side = self.num_patch_side_list[lod_idx]
-                    row, col = divmod(node_idx, num_patches_per_side)
                     
-                    y_start, x_start = row * patch_size, col * patch_size
-                    y_end, x_end = y_start + patch_size, x_start + patch_size
-
-                    current_lod_patch_canvas[:, :, y_start:y_end, x_start:x_end] = latent_patch
+                    # Process each batch
+                    for b in range(batch_size):
+                        batch_actions = actions[b]  # [num_patches]
+                        batch_probs = probs[b] if probs.dim() > 1 else probs
+                        
+                        # Find active patches (where action is 1)
+                        active_indices = torch.where(batch_actions > 0.5)[0]
+                        
+                        if len(active_indices) > 0:
+                            # Get features for active patches
+                            active_features = feature[b, active_indices]  # [num_active, feature_dim]
+                            
+                            # Unpatch features
+                            unpatched_features = unpatch_fn(active_features)  # [num_active, channels, patch_size, patch_size]
+                            
+                            # Apply probabilities
+                            if batch_probs.dim() > 1:
+                                active_probs = batch_probs[active_indices]
+                            else:
+                                active_probs = batch_probs
+                            
+                            unpatched_features = unpatched_features * active_probs.view(-1, 1, 1, 1)
+                            
+                            # Place patches in canvas
+                            for i, patch_idx in enumerate(active_indices):
+                                row, col = divmod(patch_idx.item(), num_patches_per_side)
+                                y_start, x_start = row * patch_size, col * patch_size
+                                y_end, x_end = y_start + patch_size, x_start + patch_size
+                                
+                                current_lod_patch_canvas[b, :, y_start:y_end, x_start:x_end] = unpatched_features[i]
 
             final_lod_feature_map = upsampled_map + current_lod_patch_canvas
             previous_feature_map = final_lod_feature_map
             
         return previous_feature_map
+    
+    def make_lod_decisions(self, features, temperature=1.0, hard=True):
+        """
+        Make decisions for each LOD level using Gumbel-Softmax with STE.
+        
+        Args:
+            features: Input features [batch_size, seq_len, feature_dim]
+            temperature: Temperature for Gumbel-Softmax
+            hard: Whether to use hard sampling with STE
+            
+        Returns:
+            action_dict: Dictionary mapping LOD index to action tensors
+            prob_dict: Dictionary mapping LOD index to probability tensors
+        """
+        action_dict = {}
+        prob_dict = {}
+        
+        # Process each LOD level
+        for lod_idx in range(self.num_lod):
+            num_patches = self.num_patch_side_list[lod_idx] ** 2
+            
+            # Get features for this LOD level
+            lod_features = features[:, :num_patches]  # [batch_size, num_patches, feature_dim]
+            
+            # Create decision logits for each patch
+            decision_logits = self.latent_unpatchers[str(lod_idx)](lod_features)  # [batch_size, num_patches, channels, patch_size, patch_size]
+            
+            # Global average pooling to get patch-level scores
+            patch_scores = torch.mean(decision_logits, dim=[2, 3, 4])  # [batch_size, num_patches]
+            
+            # Apply Gumbel-Softmax to get actions
+            actions = gumbel_softmax(patch_scores, temperature=temperature, hard=hard, dim=-1)
+            
+            # For hard sampling, convert to binary actions
+            if hard:
+                actions = (actions > 0.5).float()
+            
+            action_dict[lod_idx] = actions
+            prob_dict[lod_idx] = F.softmax(patch_scores / temperature, dim=-1)
+        
+        return action_dict, prob_dict
+    
+    def forward_with_lod_decisions(self, z_quantized, temperature=1.0, hard=True):
+        """
+        Complete forward pass with LOD decisions using STE.
+        
+        Args:
+            z_quantized: Input quantized features [batch_size, seq_len, feature_dim]
+            temperature: Temperature for Gumbel-Softmax
+            hard: Whether to use hard sampling with STE
+            
+        Returns:
+            reconstructed_image: Reconstructed image
+            action_dict: Dictionary of actions for each LOD
+            prob_dict: Dictionary of probabilities for each LOD
+        """
+        batch_size, seq_len, _ = z_quantized.shape
+        device = z_quantized.device
+        z_quantized = self.decoder_embed(z_quantized)
+        
+        # Make LOD decisions
+        action_dict, prob_dict = self.make_lod_decisions(z_quantized, temperature, hard)
+        
+        # Process each LOD level with decisions
+        lod_embeddings = []
+        for lod_idx in range(self.num_lod):
+            if lod_idx in action_dict:
+                actions = action_dict[lod_idx]  # Shape: [batch_size, num_patches]
+                num_patches = actions.shape[1]
+                
+                # Create embeddings for all possible patches at this LOD
+                index_tensor = torch.arange(num_patches, dtype=torch.long, device=device)
+                patch_embeddings = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)  # [num_patches, width]
+                
+                # Apply actions to select embeddings
+                selected_embeddings = patch_embeddings.unsqueeze(0) * actions.unsqueeze(-1)
+                
+                # Flatten to get only active embeddings
+                active_embeddings = selected_embeddings[actions.bool()]
+                lod_embeddings.append(active_embeddings)
+
+        if lod_embeddings:
+            flat_token_sequence = torch.cat(lod_embeddings, dim=0)
+            flat_token_sequence = flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
+        else:
+            flat_token_sequence = torch.zeros(batch_size, 0, self.width, device=device, dtype=z_quantized.dtype)
+        
+        # Concatenate with quantized features
+        if flat_token_sequence.shape[1] > 0:
+            x = torch.cat([z_quantized, flat_token_sequence], dim=1)
+            seq_len = x.shape[1]
+            x = x + self.latent_token_positional_embedding[:seq_len]
+        else:
+            x = z_quantized
+            seq_len = x.shape[1]
+            x = x + self.latent_token_positional_embedding[:seq_len]
+
+        x = self.ln_pre(x)
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        for i in range(self.num_layers):
+            x = self.transformer[i](x)
+        x = x.permute(1, 0, 2)  # LND -> NLD
+        x = self.ln_post(x)
+        
+        # Use the processed features for hierarchical decoding
+        processed_features = x[:, -flat_token_sequence.shape[1]:] if flat_token_sequence.shape[1] > 0 else x
+        
+        upsampled_latent = self.hierarchical_latent_decode_by_actions(processed_features, action_dict, prob_dict)
+        reconstructed_image = self.conv_out(upsampled_latent)
+        
+        return reconstructed_image, action_dict, prob_dict
     
     def update_features_in_tree(
         self,
@@ -819,19 +1006,43 @@ class QuadTokDecoder(nn.Module):
 
     def _forward_policy(self, z_quantized, policy_result, prob_result):
         batch_size, seq_len, _ = z_quantized.shape
+        device = z_quantized.device
         z_quantized = self.decoder_embed(z_quantized)
+        
+        # Process each LOD level
         lod_embeddings = []
         for lod_idx in range(self.num_lod):
-            actions = policy_result[lod_idx]
-            index_tensor = torch.arange(actions.shape[0], dtype=torch.long, device=device)
-            embedding_readout = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)
-            embedding_readout = embedding_readout * actions.unsqueeze(-1)
-            embedding = embedding_readout[actions.bool()]
-            lod_embeddings.append(embedding)
+            if lod_idx in policy_result:
+                actions = policy_result[lod_idx]  # Shape: [batch_size, num_patches]
+                num_patches = actions.shape[1]
+                
+                # Create embeddings for all possible patches at this LOD
+                index_tensor = torch.arange(num_patches, dtype=torch.long, device=device)
+                patch_embeddings = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)  # [num_patches, width]
+                
+                # Apply actions to select embeddings
+                # actions: [batch_size, num_patches] -> [batch_size, num_patches, width]
+                selected_embeddings = patch_embeddings.unsqueeze(0) * actions.unsqueeze(-1)
+                
+                # Flatten to get only active embeddings
+                active_embeddings = selected_embeddings[actions.bool()]  # [num_active, width]
+                lod_embeddings.append(active_embeddings)
 
-        flat_token_sequence = torch.cat(lod_embeddings, dim=0)
-        flat_token_sequence = flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
-        x = z_quantized + flat_token_sequence + self.latent_token_positional_embedding[:seq_len]
+        if lod_embeddings:
+            flat_token_sequence = torch.cat(lod_embeddings, dim=0)  # [total_active, width]
+            flat_token_sequence = flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)  # [batch_size, total_active, width]
+        else:
+            flat_token_sequence = torch.zeros(batch_size, 0, self.width, device=device, dtype=z_quantized.dtype)
+        
+        # Concatenate with quantized features
+        if flat_token_sequence.shape[1] > 0:
+            x = torch.cat([z_quantized, flat_token_sequence], dim=1)
+            seq_len = x.shape[1]
+            x = x + self.latent_token_positional_embedding[:seq_len]
+        else:
+            x = z_quantized
+            seq_len = x.shape[1]
+            x = x + self.latent_token_positional_embedding[:seq_len]
 
         x = self.ln_pre(x)
         x = x.permute(1, 0, 2)  # NLD -> LND
@@ -840,15 +1051,18 @@ class QuadTokDecoder(nn.Module):
         x = x.permute(1, 0, 2)  # LND -> NLD
         x = self.ln_post(x)
         
-        upsampled_latent = self.hierarchical_latent_decode_by_actions(x, policy_result, prob_result)
+        # Use the processed features for hierarchical decoding
+        processed_features = x[:, -flat_token_sequence.shape[1]:] if flat_token_sequence.shape[1] > 0 else x
+        
+        upsampled_latent = self.hierarchical_latent_decode_by_actions(processed_features, policy_result, prob_result)
         reconstructed_image = self.conv_out(upsampled_latent)
         
         return reconstructed_image
 
 
-    def forward(self, z_quantized, tree_structure):
+    def forward(self, z_quantized, tree_structure=None, policy_output=None, prob_output=None):
         if self.train_policy:
-            return self._forward_policy(z_quantized, tree_structure)
+            return self._forward_policy(z_quantized, policy_output, prob_output)
         else:
             return self._forward_reconstruction(z_quantized, tree_structure)
         
@@ -961,31 +1175,38 @@ class QuadTokSelctor(nn.Module):
         x = x.permute(0, 2, 1).unsqueeze(2).contiguous()
         return x
     
-    def _forward_policy(self, latent_feats, policy_result):
+    def _forward_policy(self, latent_feats, policy_result, prob_result=None):
         batch_size = latent_feats.shape[0]
         device = latent_feats.device
         lod_embeddings = []
         for lod_idx in range(self.num_lod):
-            actions = policy_result[lod_idx]
-            index_tensor = torch.arange(actions.shape[1], dtype=torch.long, device=device)
-            embedding_readout = self.token_incides_embedding_dict[str(lod_idx)](index_tensor).unsqueeze(0).repeat(batch_size, 1, 1)
-            embedding_readout = embedding_readout * actions
-            embedding = embedding_readout[actions.bool().squeeze(-1)]
-            lod_embeddings.append(embedding)
+            if lod_idx in policy_result:
+                actions = policy_result[lod_idx]
+                index_tensor = torch.arange(actions.shape[1], dtype=torch.long, device=device)
+                embedding_readout = self.token_incides_embedding_dict[str(lod_idx)](index_tensor).unsqueeze(0).repeat(batch_size, 1, 1)
+                embedding_readout = embedding_readout * actions
+                embedding = embedding_readout[actions.bool().squeeze(-1)]
+                lod_embeddings.append(embedding)
 
-        flat_token_sequence = torch.cat(lod_embeddings, dim=0)
-        flat_token_sequence = flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
+        if lod_embeddings:
+            flat_token_sequence = torch.cat(lod_embeddings, dim=0)
+            flat_token_sequence = flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
+        else:
+            flat_token_sequence = torch.zeros(batch_size, 0, self.width, device=device, dtype=latent_feats.dtype)
 
         seq_len = flat_token_sequence.shape[1]
-        flat_token_sequence += self.latent_token_positional_embedding[:seq_len]
-        x = torch.cat([latent_feats, flat_token_sequence], dim=1)
+        if seq_len > 0:
+            flat_token_sequence += self.latent_token_positional_embedding[:seq_len]
+            x = torch.cat([latent_feats, flat_token_sequence], dim=1)
+        else:
+            x = latent_feats
 
         x = self.ln_pre(x)
         x = x.permute(1, 0, 2)  # NLD -> LND
         for i in range(self.num_layers):
             x = self.transformer[i](x)
         x = x.permute(1, 0, 2)  # LND -> NLD
-        x = x[:, -seq_len:]
+        x = x[:, -seq_len:] if seq_len > 0 else x
         x = self.ln_post(x)
         x = self.out_proj(x)
 
@@ -1031,8 +1252,49 @@ class QuadTokSelctor(nn.Module):
         return x
 
 
-    def forward(self, latent_feats, tree_structure=None, policy_output=None):
+    def forward(self, latent_feats, tree_structure=None, policy_output=None, prob_output=None):
         if self.train_policy:
-            return self._forward_policy(latent_feats, policy_output)
+            return self._forward_policy(latent_feats, policy_output, prob_output)
         else:
             return self._forward_reconstruction(latent_feats, tree_structure)
+    
+    def make_lod_decisions_selector(self, features, temperature=1.0, hard=True):
+        """
+        Make decisions for each LOD level in the selector using Gumbel-Softmax with STE.
+        
+        Args:
+            features: Input features [batch_size, seq_len, feature_dim]
+            temperature: Temperature for Gumbel-Softmax
+            hard: Whether to use hard sampling with STE
+            
+        Returns:
+            action_dict: Dictionary mapping LOD index to action tensors
+            prob_dict: Dictionary mapping LOD index to probability tensors
+        """
+        action_dict = {}
+        prob_dict = {}
+        
+        # Process each LOD level
+        for lod_idx in range(self.num_lod):
+            num_patches = self.num_patch_side_list[lod_idx] ** 2
+            
+            # Get features for this LOD level
+            lod_features = features[:, :num_patches]  # [batch_size, num_patches, feature_dim]
+            
+            # Create decision logits using the output projection
+            decision_logits = self.out_proj(lod_features)  # [batch_size, num_patches, token_size]
+            
+            # Global average pooling to get patch-level scores
+            patch_scores = torch.mean(decision_logits, dim=-1)  # [batch_size, num_patches]
+            
+            # Apply Gumbel-Softmax to get actions
+            actions = gumbel_softmax(patch_scores, temperature=temperature, hard=hard, dim=-1)
+            
+            # For hard sampling, convert to binary actions
+            if hard:
+                actions = (actions > 0.5).float()
+            
+            action_dict[lod_idx] = actions
+            prob_dict[lod_idx] = F.softmax(patch_scores / temperature, dim=-1)
+        
+        return action_dict, prob_dict
