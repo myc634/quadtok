@@ -24,6 +24,7 @@ from modeling.modules.blocks import Mlp
 from modeling.modules import ReconstructionLoss_Reward
 from utils.train_utils import create_model, create_dataloader, auto_resume, create_evaluator
 from modeling.utils import build_quadtree, get_ordered_nodes, build_tree_from_decision_nodes, build_quadtree, build_random_quadtree, build_probabilistic_quadtree
+import matplotlib.pyplot as plt
 
 def image_generator(config, logger, accelerator):
     config.training.per_gpu_batch_size = 1
@@ -42,6 +43,206 @@ def image_generator(config, logger, accelerator):
 class Namespace(SimpleNamespace):
     def get(self, key, default=None):
         return getattr(self, key, default)
+
+def visualize_lod_binary_map(lod_idx, actions, num_patches_per_side, save_path):
+    """
+    Visualize a binary map for a specific LOD showing which nodes are activated.
+    
+    Args:
+        lod_idx: LOD level (int)
+        actions: Binary tensor (num_patches,) where 1=activated, 0=not activated
+        num_patches_per_side: Number of patches per side for this LOD
+        save_path: Path to save the visualization
+    """
+    # Convert to numpy
+    if isinstance(actions, torch.Tensor):
+        actions = actions.cpu().numpy()
+    
+    # Reshape to 2D grid
+    grid_size = int(np.sqrt(actions.shape[0]))
+    if grid_size * grid_size != actions.shape[0]:
+        # If not a perfect square, find the appropriate dimensions
+        grid_size = num_patches_per_side
+    
+    binary_map = actions.reshape(grid_size, grid_size)
+    
+    # Create visualization
+    fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+    ax.imshow(binary_map, cmap='gray', interpolation='nearest')
+    ax.set_title(f'LOD {lod_idx} Activation Map ({int(binary_map.sum())} nodes activated)')
+    ax.set_xlabel(f'Grid Size: {grid_size}x{grid_size}')
+    ax.set_ylabel(f'Grid Size: {grid_size}x{grid_size}')
+    ax.grid(True, alpha=0.3)
+    
+    # Add text annotations for activated cells
+    for i in range(grid_size):
+        for j in range(grid_size):
+            if binary_map[i, j] > 0.5:
+                ax.text(j, i, '1', ha='center', va='center', 
+                       color='white', fontsize=8, fontweight='bold')
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+
+def visualize_lod_maps_with_image(image, reconstruction, lod_maps_dict, logit_map_dict, save_path, patch_info):
+    """
+    Visualize original image, reconstruction, LOD binary maps, and token heat map.
+    
+    Color coding for LOD maps:
+    - WHITE (value=1) = Activated node (this patch is selected)
+    - BLACK (value=0) = Not activated (this patch is skipped)
+    
+    Args:
+        image: Original image tensor (1, 3, H, W)
+        reconstruction: Reconstructed image tensor (1, 3, H, W)
+        lod_maps_dict: Dictionary mapping lod_idx to binary map (1D tensor)
+        save_path: Path to save the visualization
+    """
+    # Convert image to numpy
+    if isinstance(image, torch.Tensor):
+        img_np = image.squeeze(0).permute(1, 2, 0).cpu().numpy()
+    else:
+        img_np = image.squeeze(0).permute(1, 2, 0).numpy()
+    
+    img_np = np.clip(img_np, 0, 1)
+
+    if isinstance(reconstruction, torch.Tensor):
+        recon_np = reconstruction.squeeze(0).permute(1, 2, 0).cpu().numpy()
+    else:
+        recon_np = reconstruction.squeeze(0).permute(1, 2, 0).numpy()
+    
+    recon_np = np.clip(recon_np, 0, 1)
+    
+    # Count how many LODs we have
+    num_lods = len(lod_maps_dict)
+    
+    # Create subplots: 1 for image + 1 for reconstruction + num_lods for LOD maps + 1 for token heat map
+    fig, axes = plt.subplots(1, num_lods + 2, figsize=(4 * (num_lods + 3), 4))
+    
+    # Plot original image
+    axes[0].imshow(img_np)
+    axes[0].set_title('Original Image', fontsize=12)
+    axes[0].axis('off')
+
+    axes[1].imshow(recon_np)
+    axes[1].set_title('Reconstruction Image', fontsize=12)
+    axes[1].axis('off')
+
+    # Plot each LOD map
+    for idx, ((lod_idx, lod_map), (lod_idx, logit_list)) in enumerate(zip(sorted(lod_maps_dict.items()), sorted(logit_map_dict.items()))):
+        axes_idx = idx + 2
+        
+        patch_size = patch_info['patch_size_list'][lod_idx]
+        lod_nodes = patch_info['lod_node_mapping'][lod_idx]
+        num_patches_per_side = patch_info['num_patches_per_side'][lod_idx]
+
+        binary_map = torch.zeros(num_patches_per_side, num_patches_per_side, dtype=torch.int64)
+        logit_map = torch.zeros(num_patches_per_side, num_patches_per_side, dtype=torch.float32)
+        
+        # Convert to numpy if tensor
+        if isinstance(lod_map, torch.Tensor):
+            map_data = lod_map.cpu().numpy()
+        else:
+            map_data = lod_map
+        for binary, logit, node in zip(lod_map, logit_list, lod_nodes):
+            row, col = divmod(node.patch_index, num_patches_per_side)
+            binary_map[row, col] = binary
+            logit_map[row, col] = logit
+
+        # # Reshape to 2D grid (assuming square grid)
+        grid_size = int(np.sqrt(map_data.shape[0]))
+        # binary_map = map_data.reshape(grid_size, grid_size)
+        # breakpoint()
+        # Plot binary map
+        axes[axes_idx].imshow(binary_map, cmap='gray', interpolation='nearest', vmin=0, vmax=1)
+        axes[axes_idx].set_title(f'Binary Map LOD {lod_idx} ({int(binary_map.sum())} nodes)', fontsize=12)
+        axes[axes_idx].axis('off')
+        axes[axes_idx].grid(True, alpha=0.3)
+        # breakpoint()
+        # axes[axes_idx - 1].imshow(logit_map, cmap='coolwarm', interpolation='nearest', vmin=0, vmax=1)
+        # axes[axes_idx - 1].set_title(f'Logit Map LOD {lod_idx} ({int(binary_map.sum())} nodes)', fontsize=12)
+        # axes[axes_idx - 1].axis('off')
+        # axes[axes_idx - 1].grid(True, alpha=0.3)
+        # plt.colorbar(im, ax=axes[axes_idx - 1], fraction=0.046, pad=0.04)
+        
+        # Add text annotations for activated cells
+        # for i in range(grid_size):
+        #     for j in range(grid_size):
+        #         if binary_map[i, j] > 0.5:
+        #             axes[axes_idx].text(j, i, '1', ha='center', va='center', 
+        #                color='white', fontsize=6, fontweight='bold')
+    
+    # Calculate and plot token heat map (cumulative activation count per position)
+    # token_heat_map = calculate_token_heat_map(lod_maps_dict)
+    # if token_heat_map is not None:
+    #     heat_map_idx = num_lods + 2
+    #     im = axes[heat_map_idx].imshow(token_heat_map, cmap='coolwarm', interpolation='nearest')
+    #     axes[heat_map_idx].set_title(f'Token Heat Map (max: {int(token_heat_map.max())})', fontsize=12)
+    #     axes[heat_map_idx].axis('off')
+        
+    #     # Add colorbar
+    #     plt.colorbar(im, ax=axes[heat_map_idx], fraction=0.046, pad=0.04)
+    
+    plt.suptitle('Quadtree Activation Maps & Token Heat Map', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+
+def calculate_token_heat_map(lod_maps_dict):
+    """
+    Calculate cumulative token heat map showing how many tokens are activated at each position.
+    
+    Args:
+        lod_maps_dict: Dictionary mapping lod_idx to binary map (1D tensor)
+        
+    Returns:
+        heat_map: 2D numpy array showing cumulative token count per position
+    """
+    if not lod_maps_dict:
+        return None
+    
+    # Find the finest resolution (highest LOD)
+    max_lod = max(lod_maps_dict.keys())
+    finest_map = lod_maps_dict[max_lod]
+    
+    # Convert to numpy if tensor
+    if isinstance(finest_map, torch.Tensor):
+        finest_data = finest_map.cpu().numpy()
+    else:
+        finest_data = finest_map
+    
+    # Get grid size for finest LOD
+    grid_size = int(np.sqrt(finest_data.shape[0]))
+    heat_map = np.zeros((grid_size, grid_size))
+    
+    # For each LOD, accumulate tokens to the finest resolution
+    for lod_idx, lod_map in sorted(lod_maps_dict.items()):
+        if isinstance(lod_map, torch.Tensor):
+            map_data = lod_map.cpu().numpy()
+        else:
+            map_data = lod_map
+        
+        # Calculate how many tokens this LOD contributes to each finest position
+        lod_grid_size = int(np.sqrt(map_data.shape[0]))
+        lod_binary_map = map_data.reshape(lod_grid_size, lod_grid_size)
+        
+        # Calculate scaling factor (how many finest positions each LOD position covers)
+        scale_factor = grid_size // lod_grid_size
+        
+        # Accumulate tokens to finest resolution
+        for i in range(lod_grid_size):
+            for j in range(lod_grid_size):
+                if lod_binary_map[i, j] > 0.5:  # If this LOD position is activated
+                    # Add tokens to corresponding finest positions
+                    start_i = i * scale_factor
+                    end_i = min((i + 1) * scale_factor, grid_size)
+                    start_j = j * scale_factor
+                    end_j = min((j + 1) * scale_factor, grid_size)
+                    
+                    heat_map[start_i:end_i, start_j:end_j] += 1
+    
+    return heat_map
 
 def gumbel_sigmoid(logits, tau=1.0, hard=False, eps=1e-10):
     """
@@ -125,11 +326,15 @@ def build_policy_result_from_actions(actions_hard_flat, model_selector, device):
 # --- NEW SEQUENTIAL OPTIMIZATION FUNCTION ---
 
 def optimize_tree_for_image(
-    image, model, loss_module, config, logger, accelerator
+    image, model, loss_module, config, logger, accelerator, image_id=None, save_dir=None
 ):
     """
     Optimizes the quadtree structure for a single image using a sequential,
     causal gradient descent process. (FIXED VERSION 4)
+    
+    Args:
+        image_id: Optional identifier for saving visualizations
+        save_dir: Directory to save visualizations
     """
     logger.info(f"Optimizing tree for one image (Sequential Causal)...")
     model.eval()
@@ -137,14 +342,20 @@ def optimize_tree_for_image(
 
     device = accelerator.device
     guaranteed_depth = config.model.guaranteed_depth
+    
+    # Create save directory for visualizations
+    if save_dir and image_id is not None:
+        viz_dir = os.path.join(save_dir, f"image_{image_id:05d}_viz")
+        os.makedirs(viz_dir, exist_ok=True)
 
     # 1. Build tree structure and mappings
     full_tree_root = build_quadtree(model.num_patch_side_list)
     ordered_full_nodes = get_ordered_nodes(full_tree_root, model.num_lod)
     num_total_nodes = len(ordered_full_nodes)
-    lod_len_mapping = defaultdict(int)
+    lod_len_mapping, lod_node_mapping = defaultdict(int), defaultdict(list)
     for node in ordered_full_nodes:
         lod_len_mapping[node.lod_level] += 1
+        lod_node_mapping[node.lod_level].append(node)
 
     node_to_idx_map = {
         (node.lod_level, node.patch_index): i 
@@ -195,6 +406,8 @@ def optimize_tree_for_image(
 
     # 5. Sequential optimization loop
     all_best_actions_hard = {}
+    all_best_logit = {}
+    lod_actions_vis_dict = {}
     
     current_decision_nodes = defaultdict(list)
     for node in ordered_full_nodes:
@@ -269,6 +482,7 @@ def optimize_tree_for_image(
         
         best_loss = float('inf')
         best_actions_hard_for_this_lod_sparse = None # Will be size 140
+        best_logit_hard_for_this_lod_sparse = None
 
         for step in range(num_optim_steps):
             optimizer.zero_grad()
@@ -314,7 +528,8 @@ def optimize_tree_for_image(
                 loss = loss.mean()
             
             # Sparsity penalty only on *active* nodes
-            sparsity_loss = active_probs_subset.mean() * 1e-2
+            sparsity_loss = active_probs_subset.mean() * 0.1 + (active_probs_subset * (1 - active_probs_subset)).mean()
+            # sparsity_loss = (active_probs_subset * (1 - active_probs_subset)).mean()# + active_probs_subset.mean() * 0.1
             total_loss = loss + sparsity_loss
             
             # if step % 20 == 0:
@@ -329,6 +544,7 @@ def optimize_tree_for_image(
                 best_loss = current_loss_val
                 # Store the *sparse* best actions (e.g., shape 140)
                 best_actions_hard_for_this_lod_sparse = active_actions_hard.detach().clone()
+                best_logit_hard_for_this_lod_sparse = linear(active_theta_subset).sigmoid().detach().clone().squeeze(-1)
         
         # End of optimization loop
 
@@ -339,8 +555,12 @@ def optimize_tree_for_image(
 
         best_actions_hard_for_this_lod = torch.zeros(lod_len_mapping[lod_idx], device=device, dtype=torch.float)
         best_actions_hard_for_this_lod.scatter_(0, active_theta_indices_tensor, best_actions_hard_for_this_lod_sparse)
+        # breakpoint()
+        best_logit_hard_for_this_lod = torch.zeros(lod_len_mapping[lod_idx], device=device, dtype=torch.float)
+        best_logit_hard_for_this_lod.scatter_(0, active_theta_indices_tensor, best_logit_hard_for_this_lod_sparse)
         
         all_best_actions_hard[lod_idx] = best_actions_hard_for_this_lod
+        all_best_logit[lod_idx] = best_logit_hard_for_this_lod
 
         # 5g. Update decision nodes for next LOD
         if child_lod_idx < model.num_lod:
@@ -355,8 +575,30 @@ def optimize_tree_for_image(
                     parent_global_idx = node_to_idx_map[(lod_idx, parent_patch_idx)]
                     child_patches = parent_bfs_to_child_patch_map.get(parent_global_idx, [])
                     current_decision_nodes[child_lod_idx].extend(child_patches)
+        
         del optimizer
         # logger.info(f"--- Finished LOD {lod_idx}. Best Loss: {best_loss:.4f}. Activated {int(best_actions_hard_for_this_lod.sum())} nodes. ---")
+
+    # Visualization: Save combined LOD maps with original image
+    if save_dir and image_id is not None:
+        # Show which LODs were actually optimized
+        logger.info(f"Available LODs in all_best_actions_hard: {list(all_best_actions_hard.keys())}")
+        
+        # Visualize all optimized LODs (or specific ones like 4, 5)
+        # Option 1: Visualize all LODs (currently active)
+        lod_maps_to_visualize = all_best_actions_hard
+        # Option 2: Visualize only specific LODs (commented out)
+        # lod_maps_to_visualize = {}
+        # for lod_idx in [4, 5]:  
+        #     if lod_idx in all_best_actions_hard:
+        #         lod_maps_to_visualize[lod_idx] = all_best_actions_hard[lod_idx]
+        #         logger.info(f"Including LOD {lod_idx} with shape {all_best_actions_hard[lod_idx].shape}")
+        if lod_maps_to_visualize:
+            combined_path = os.path.join(viz_dir, "lod_maps_with_image.png")
+            visualize_lod_maps_with_image(image, reconstruction.detach(), lod_maps_to_visualize, all_best_logit, combined_path, dict(patch_size_list=model.patch_size_list, lod_node_mapping=lod_node_mapping, num_patches_per_side=model.num_patch_side_list))
+            logger.info(f"Saved combined LOD visualization to {combined_path}")
+        else:
+            logger.warning(f"No LOD maps to visualize! Available LODs: {list(all_best_actions_hard.keys())}")
 
     logger.info("Sequential optimization finished.")
     torch.cuda.empty_cache()
@@ -374,7 +616,8 @@ def main(args):
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
 
-    output_dir = config.experiment.output_dir + "/eval_outputs"
+    # output_dir = config.experiment.output_dir + "/eval_outputs"
+    output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
     logging_dir = os.path.join(output_dir, "logs")
 
@@ -429,9 +672,17 @@ def main(args):
     token_num = 0
     for image, image_path, image_key, class_id in tqdm(generator):
         count += 1
-        # Call the new sequential optimization function
-        all_actions, final_tree = optimize_tree_for_image(image, model, loss_module, config, logger, accelerator)
+        # Call the new sequential optimization function with visualization
+        all_actions, final_tree = optimize_tree_for_image(
+            image, model, loss_module, config, logger, accelerator, 
+            image_id=count-1, save_dir=output_dir
+        )
+        # Debug: Print which LODs were actually optimized
+        logger.info(f"After optimization - LODs available: {list(all_actions.keys())}")
+        for lod_idx, actions in all_actions.items():
+            logger.info(f"  LOD {lod_idx}: shape={actions.shape}, sum(activated)={actions.sum().item()}")
         
+        # breakpoint()  # Uncomment to debug
         # You can inspect all_actions and final_tree here
         final_node = build_tree_from_decision_nodes(final_tree, model.num_patch_side_list)
         with torch.no_grad():

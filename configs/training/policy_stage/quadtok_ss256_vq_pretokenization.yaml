@@ -1,67 +1,50 @@
 experiment:
     project: "dynamic_tokenizer"
-    name: "policy_debug"
-    output_dir: "checkpoints/policy_debug"
+    name: "quadtok_sl256_vae_allps16_rlpolicy_weightinit"
+    output_dir: "checkpoints/quadtok_sl256_vae_allps16_rlpolicy_weightinit"
     max_train_examples: 685_800_000. #  Converge at 300_000
     save_every: 50_000
     eval_every: 50_000
     generate_every: 500
-    log_every: 1
+    log_every: 5
     log_grad_norm_every: 1_000
     resume: False
     explanation: #"S-256 size TiTok model No Legacy"
-    init_weight: "checkpoints/quadtok_sl256_vae_ts16_unifsample_300kgan_gd2/checkpoint-300000/ema_model/pytorch_model.bin"
+    init_weight: "checkpoints/quadtok_sl256_vq_ts8_unifsample_300kgan_gd3_0.8-0.7/checkpoint-300000/ema_model/pytorch_model.bin"
 
 model:
     type: "quadtok"
     grad_checkpointing: False
-    train_policy: True
+    train_policy: False
     guaranteed_depth: 3
     vq_model:
-      quantize_mode: vae
+      quantize_mode: vq
       # vit arch
       vit_enc_model_size: "small"
       vit_dec_model_size: "small"
       vit_enc_patch_size: 16
       vit_dec_patch_size: 16
       decoder_token_size: 256
-      token_size: 16
+      codebook_size: 16384
+      use_l2_norm: true
+      commitment_cost: 0.25
+      token_size: 8
     selector:
-      token_size: 16
+      token_size: 8
       num_patch_side_list: [1, 2, 4, 8, 16, 32]
       patch_size_list: [16, 16, 16, 16, 16, 8]
 
-policy_model:
-    type: "quadtok_policy"
-    grad_checkpointing: False
-    train_policy: True
-    model_scale: "small"
-    guaranteed_depth: 2
-
-policy:
-    group_size: 4
-    discount_factor: 0.99
-    ppo_epochs: 8
-    clip_epsilon: 0.2
-    rule_search_num_workers: 2
-    reference_loss_weight: 0.5
-
 
 losses:
-    discriminator_start: 400_000
-    quantizer_weight: 1.0
-    discriminator_factor: 1.0
-    discriminator_weight: 0.1
-    perceptual_loss: "lpips-convnext_s-1.0-0.1"
-    perceptual_weight: 1.1
-    reconstruction_loss: "l2"
-    reconstruction_weight: 1.0
-    lecam_regularization_weight: 0.001
-    kl_weight: 1e-6
-    logvar_init: 0.0
-    sparsity_weight: 1e-2
-    entropy_weight: 1e-2
-    recon_weight: 1.0
+  discriminator_start: 300000
+  quantizer_weight: 1.0
+  discriminator_factor: 1.0
+  discriminator_weight: 0.1
+  perceptual_loss: lpips-convnext_s-1.0-0.1
+  perceptual_weight: 1.1
+  reconstruction_loss: l2
+  reconstruction_weight: 1.0
+  lecam_regularization_weight: 0.001
 
 dataset:
     type: "simple_image"
@@ -76,26 +59,21 @@ dataset:
         random_flip: True
         res_ratio_filtering: True
 
-optimizer:
-    name: adamw 
-    params:
-        learning_rate: 5e-6
-        discriminator_learning_rate: 1e-4
-        beta1: 0.9
-        beta2: 0.999
-        weight_decay: 1e-4
-
+optimization:
+    per_image_lr: 5e-4
+    per_image_steps: 50
+    gumbel_tau: 1.0
 
 lr_scheduler:
     scheduler: "cosine"
     params:
         learning_rate: ${optimizer.params.learning_rate}
-        warmup_steps: 0
+        warmup_steps: 100
         end_lr: 1e-5
-max_grad_norm: True
+
 training:
     gradient_accumulation_steps: 1
-    per_gpu_batch_size: 16
+    per_gpu_batch_size: 1
     mixed_precision: "bf16"
     enable_tf32: True
     enable_wandb: True

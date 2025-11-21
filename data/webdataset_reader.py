@@ -20,6 +20,7 @@ from torch.utils.data import default_collate
 from torchvision import transforms
 import torchvision.transforms.functional as F
 from .classes import IMAGENET2012_CLASSES
+from torch.nn.utils.rnn import pad_sequence
 
 
 def filter_keys(key_set):
@@ -80,80 +81,6 @@ class ImageTransform:
         )
         print(f"self.train_transform: {self.train_transform}")
         print(f"self.eval_transform: {self.eval_transform}")
-        
-class VideoTransform:
-    def __init__(self,
-                 is_train: bool,
-                 resize_shorter_edge: int = 256,
-                 crop_size: int = 256,
-                 random_crop: bool = True,
-                 random_flip: bool = True,
-                 num_frames: int = 32,
-                 normalize_mean: List[float] = [0.5, 0.5, 0.5],
-                 normalize_std: List[float] = [0.5, 0.5, 0.5]):
-        self.is_train = is_train
-        self.resize_shorter_edge = resize_shorter_edge
-        self.crop_size = crop_size
-        self.random_crop = random_crop
-        self.random_flip = random_flip
-        self.num_frames = num_frames
-
-        self.normalize_transform = transforms.Normalize(mean=normalize_mean, std=normalize_std)
-        
-
-    def __call__(self, video_data: bytes) -> torch.Tensor:
-        # Use a file-like object for decord
-        video_reader = decord.VideoReader(BytesIO(video_data))
-        total_frames = len(video_reader)
-
-        if total_frames >= self.num_frames:
-            start_index = np.random.randint(0, total_frames - self.num_frames + 1)
-            indices = np.arange(start_index, start_index + self.num_frames)
-        else:
-            existing_indices = np.arange(total_frames)
-            num_padding = self.num_frames - total_frames
-            padding_indices = np.full(num_padding, total_frames - 1)
-            indices = np.concatenate((existing_indices, padding_indices))
-        
-        # --- Efficiently decode frames using decord ---
-        # .get_batch() is highly optimized for fetching frames by index
-        video_tensor = video_reader.get_batch(indices).asnumpy()
-        
-        # --- Apply transforms using TorchVision ---
-        video_tensor = torch.from_numpy(video_tensor).permute(0, 3, 1, 2).float() / 255.0 # toTensor operation
-
-        video_tensor = F.resize(video_tensor, (self.resize_shorter_edge, self.resize_shorter_edge))
-        video_tensor = transforms.CenterCrop(self.crop_size)(video_tensor)
-
-
-        # # Resizing now happens on the tensor
-        # if self.is_train:
-        #     # For training, resize shorter edge
-        #     h, w = video_tensor.shape[-2:]
-        #     if h < w:
-        #         new_h = self.resize_shorter_edge
-        #         new_w = int(w * (new_h / h))
-        #     else:
-        #         new_w = self.resize_shorter_edge
-        #         new_h = int(h * (new_w / w))
-        #     video_tensor = F.resize(video_tensor, (new_h, new_w))
-
-        #     # Random crop
-        #     if self.random_crop:
-        #         video_tensor = transforms.RandomCrop(self.crop_size)(video_tensor)
-
-        #     # Random flip
-        #     if self.random_flip and torch.rand(1) < 0.5:
-        #         video_tensor = torch.flip(video_tensor, dims=[-1])
-        # else:
-        #     # For validation/testing, just resize and center crop
-        #     video_tensor = F.resize(video_tensor, (self.resize_shorter_edge, self.resize_shorter_edge))
-        #     video_tensor = transforms.CenterCrop(self.crop_size)(video_tensor)
-
-        # Normalize the final tensor
-        video_tensor = self.normalize_transform(video_tensor)
-
-        return video_tensor
 
 
 class SimpleImageDataset:
@@ -287,156 +214,136 @@ class SimpleImageDataset:
         return self._eval_dataloader
 
 
-class SimpleVideoDataset:
+class QuadtreeImageDataset:
     def __init__(
         self,
-        train_shards_path: Union[Text, List[Text]],
-        eval_shards_path: Union[Text, List[Text]],
-        num_train_examples: int,
-        per_gpu_batch_size: int,
-        global_batch_size: int,
-        num_workers_per_gpu: int = 12,
+        shards_path: Union[Text, List[Text]],
         resize_shorter_edge: int = 256,
-        num_frames: int = 32,
         crop_size: int = 256,
-        random_crop = True,
-        random_flip = True,
+        random_crop: bool = True,
+        random_flip: bool = True,
         normalize_mean: List[float] = [0., 0., 0.],
         normalize_std: List[float] = [1., 1., 1.],
+        num_workers_per_gpu: int = 12,
     ):
-        """Initializes the WebDatasetReader class for video.
+        """Initializes the QuadtreeImageDataset class."""
+        transform = ImageTransform(
+            resize_shorter_edge, crop_size, random_crop, random_flip,
+            normalize_mean, normalize_std)
 
-        Args:
-            train_shards_path: A string or list of strings, path to the training data shards (.tar.gz).
-            eval_shards_path: A string or list of strings, path to the evaluation data shards (.tar.gz).
-            num_train_examples: An integer, total number of training examples.
-            per_gpu_batch_size: An integer, number of examples per GPU batch.
-            global_batch_size: An integer, total number of examples in a batch across all GPUs.
-            num_workers_per_gpu: An integer, number of workers per GPU.
-            num_frames: An integer, the number of frames to sample from each video.
-            crop_size: An integer, the spatial size to resize and crop video frames to.
-            normalize_mean: A list of floats for normalizing the video tensor.
-            normalize_std: A list of floats for normalizing the video tensor.
-        """
-        # For video, train and eval transforms are the same as sampling is always random
-
-        train_transform = VideoTransform(
-            is_train=True,
-            resize_shorter_edge=resize_shorter_edge, # Intermediate size before random crop
-            crop_size=crop_size,
-            random_crop=random_crop,
-            random_flip=random_flip,
-            num_frames=num_frames,
-            normalize_mean=normalize_mean,
-            normalize_std=normalize_std
-        )
-        
-        eval_transform = VideoTransform(
-            is_train=False,
-            # For eval, typically resize directly to the final crop size
-            resize_shorter_edge=crop_size,
-            crop_size=crop_size,
-            random_crop=False,
-            random_flip=False,
-            num_frames=num_frames,
-            normalize_mean=normalize_mean,
-            normalize_std=normalize_std
-        )
-
-        # Common processing pipeline for both train and eval
-        train_processing_pipeline = [
-            # Rename video files; expects extensions like .mp4, .mov, etc.
+        # The user wants augmentation like in training
+        processing_pipeline = [
+            wds.decode(wds.autodecode.ImageHandler("pil", extensions=["webp", "png", "jpg", "jpeg"])),
             wds.rename(
-                video="mp4;mov;avi;mkv",
+                image="jpg;png;jpeg;webp",
+                class_id="cls",
                 handler=wds.warn_and_continue,
             ),
-            # Filter to keep only necessary keys
-            wds.map(filter_keys(set(["video"]))),
-            # Apply the video transform to the 'video' field
+            wds.map(filter_keys(set(["image", "class_id", "filename"]))),
             wds.map_dict(
-                video=train_transform,
-                handler=wds.warn_and_continue,
-            ),
-        ]
-        
-        eval_processing_pipeline = [
-            # Rename video files; expects extensions like .mp4, .mov, etc.
-            wds.rename(
-                video="mp4;mov;avi;mkv",
-                handler=wds.warn_and_continue,
-            ),
-            # Filter to keep only necessary keys
-            wds.map(filter_keys(set(["video"]))),
-            # Apply the video transform to the 'video' field
-            wds.map_dict(
-                video=eval_transform,
+                image=transform.train_transform, # Using train_transform for augmentation
+                class_id=lambda x: int(x),
                 handler=wds.warn_and_continue,
             ),
         ]
 
-        # --- Create train dataset and loader ---
+        # batchsize is 1, iterate once
         pipeline = [
-            wds.ResampledShards(sorted(glob.glob(train_shards_path))),
-            # Decompress .tar.gz and yield samples
+            wds.SimpleShardList(shards_path),
             wds.tarfile_to_samples(handler=wds.warn_and_continue),
-            wds.shuffle(bufsize=1000, initial=100),
-            *train_processing_pipeline,
-            wds.batched(per_gpu_batch_size, partial=False, collation_fn=default_collate),
+            *processing_pipeline,
+            wds.batched(1, partial=True, collation_fn=default_collate),
+        ]
+        self._dataset = wds.DataPipeline(*pipeline)
+        self._dataloader = wds.WebLoader(
+            self._dataset,
+            batch_size=None,
+            shuffle=False,
+            num_workers=num_workers_per_gpu,
+            pin_memory=True,
+            persistent_workers=num_workers_per_gpu > 0,
+        )
+
+    @property
+    def dataloader(self):
+        return self._dataloader
+
+
+class PretokenizedDataset:
+    def __init__(
+        self,
+        shards_path: Union[Text, List[Text]],
+        per_gpu_batch_size: int,
+        global_batch_size: int,
+        num_train_examples: int,
+        num_workers_per_gpu: int = 12,
+    ):
+        """Initializes the PretokenizedQuadtreeDataset class."""
+
+        def unpack_metadata_from_dict(sample):
+            metadata = sample.pop("metadata")
+            sample["tree"] = metadata["tree"]
+            sample["status"] = torch.tensor(metadata["status"], dtype=torch.long)
+            return sample
+
+        def pad_collate_fn(batch):
+            # batch is a list of dicts
+            z_quantized_list = [sample['z_quantized'] for sample in batch]
+            parent_idx_list = [sample['parent_idx'] for sample in batch]   # 新增
+            trees = [sample['tree'] for sample in batch]
+            statuses = [sample['status'] for sample in batch]
+            class_ids = [sample['class_id'] for sample in batch]
+            
+            # Calculate lengths before padding
+            lengths = torch.tensor([len(seq) for seq in z_quantized_list], dtype=torch.long)
+            
+            # Pad z_quantized sequences only
+            z_quantized_padded = pad_sequence(z_quantized_list, batch_first=True, padding_value=-1.0)
+            parent_idx_padded = pad_sequence(parent_idx_list, batch_first=True, padding_value=-1.0)
+            
+            return {
+                'z_quantized': z_quantized_padded,
+                'parent_idx': parent_idx_padded,
+                'tree': trees,  # Keep as list of dicts
+                'status': torch.stack(statuses),  # Keep as list of tensors
+                'class_id': torch.tensor(class_ids, dtype=torch.long),  # Keep as list of ints
+                'lengths': lengths
+            }
+
+        pipeline = [
+            wds.ResampledShards(shards_path),
+            wds.tarfile_to_samples(handler=wds.warn_and_continue),
+            wds.decode(wds.autodecode.basichandlers, handler=wds.warn_and_continue),
+            wds.rename(z_quantized="npy", parent_idx="parent_idx.npy", metadata="json", class_id="cls", handler=wds.warn_and_continue),
+            wds.map_dict(
+                z_quantized=torch.from_numpy,
+                parent_idx=torch.from_numpy,
+                # metadata is already decoded by autodecode.basichandlers, no need to json.loads
+                class_id=int
+            ),
+            wds.map(unpack_metadata_from_dict),
+            wds.batched(per_gpu_batch_size, partial=False, collation_fn=pad_collate_fn),
         ]
 
         num_batches = math.ceil(num_train_examples / global_batch_size)
-        num_worker_batches = math.ceil(num_train_examples / 
-            (global_batch_size * num_workers_per_gpu))
+        num_worker_batches = math.ceil(
+            num_train_examples / (global_batch_size * num_workers_per_gpu)
+        )
         num_batches = num_worker_batches * num_workers_per_gpu
         num_samples = num_batches * global_batch_size
 
-        # Each worker iterates over the complete dataset.
-        self._train_dataset = wds.DataPipeline(*pipeline).with_epoch(num_worker_batches)
-        self._train_dataloader = wds.WebLoader(
-            self._train_dataset,
+        self._dataset = wds.DataPipeline(*pipeline).with_epoch(num_worker_batches)
+        self._dataloader = wds.WebLoader(
+            self._dataset,
             batch_size=None,
             shuffle=False,
             num_workers=num_workers_per_gpu,
             pin_memory=True,
-            persistent_workers=True,
+            persistent_workers=num_workers_per_gpu > 0,
         )
-        self._train_dataloader.num_batches = num_batches
-        self._train_dataloader.num_samples = num_samples
-
-        # --- Create eval dataset and loader ---
-        pipeline = [
-            wds.SimpleShardList(sorted(glob.glob(eval_shards_path))),
-            wds.split_by_worker,
-            wds.tarfile_to_samples(handler=wds.warn_and_continue),
-            # wds.slice(int(10000 // (per_gpu_batch_size * num_frames))),
-            wds.slice(10),
-            *eval_processing_pipeline,
-            wds.batched(per_gpu_batch_size, partial=True, collation_fn=default_collate),
-        ]
-        self._eval_dataset = wds.DataPipeline(*pipeline)
-        # self._eval_dataset.with_length(int(50000 // (per_gpu_batch_size * num_frames)))
-        self._eval_dataloader = wds.WebLoader(
-            self._eval_dataset,
-            batch_size=None,
-            shuffle=False,
-            num_workers=num_workers_per_gpu,
-            pin_memory=True,
-            persistent_workers=True,
-        )
-
+        self._dataloader.num_batches = num_batches
+        self._dataloader.num_samples = num_samples
+    
     @property
-    def train_dataset(self):
-        return self._train_dataset
-
-    @property
-    def train_dataloader(self):
-        return self._train_dataloader
-
-    @property
-    def eval_dataset(self):
-        print(f"Num of samples for eval: {len(self._eval_dataset)}")
-        return self._eval_dataset
-
-    @property
-    def eval_dataloader(self):
-        return self._eval_dataloader
+    def dataloader(self):
+        return self._dataloader

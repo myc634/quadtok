@@ -26,13 +26,18 @@ from collections import OrderedDict
 import copy
 from typing import Optional
 from einops.layers.torch import Rearrange
-from modeling.modules.attention import RopeTransformerBlock, precompute_freqs_cis
+from modeling.modules.attention import TransformerBlock, precompute_freqs_cis
 from torch.utils.checkpoint import checkpoint
 from modeling.utils import _get_nodes_at_level, QuadTreeNode, build_quadtree
 import time
 from collections import defaultdict
+from torch.nn.attention import SDPBackend, sdpa_kernel
+from torch.nn.utils.rnn import pad_sequence
+import time
+import math
 
-
+def modulate(x, shift, scale):
+    return x * (1 + scale) + shift
 
 def scatter_patches(
     canvas: torch.Tensor,
@@ -92,8 +97,9 @@ class ResidualAttentionBlock(nn.Module):
             x: torch.Tensor,
             key_padding_mask: Optional[torch.Tensor] = None,
             attention_mask: Optional[torch.Tensor] = None
-    ):
-        attn_output = self.attention(x=self.ln_1(x), attention_mask=attention_mask, key_padding_mask=key_padding_mask)
+    ):  
+        with sdpa_kernel(SDPBackend.EFFICIENT_ATTENTION):
+            attn_output = self.attention(x=self.ln_1(x), attention_mask=attention_mask, key_padding_mask=key_padding_mask)
         x = x + attn_output
         if self.mlp_ratio > 0:
             x = x + self.mlp(self.ln_2(x))
@@ -190,6 +196,197 @@ class UViTBlock(nn.Module):
         x = x + self.drop_path(self.attn(self.norm1(x)))
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
+
+class TimestepEmbedder(nn.Module):
+    """
+    Embeds scalar timesteps into vector representations.
+    """
+    def __init__(self, hidden_size, frequency_embedding_size=256):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(frequency_embedding_size, hidden_size, bias=True),
+            nn.SiLU(),
+            nn.Linear(hidden_size, hidden_size, bias=True),
+        )
+        self.frequency_embedding_size = frequency_embedding_size
+
+    @staticmethod
+    def timestep_embedding(t, dim, max_period=10000):
+        """
+        Create sinusoidal timestep embeddings.
+        :param t: a 1-D Tensor of N indices, one per batch element.
+                          These may be fractional.
+        :param dim: the dimension of the output.
+        :param max_period: controls the minimum frequency of the embeddings.
+        :return: an (N, D) Tensor of positional embeddings.
+        """
+        # https://github.com/openai/glide-text2im/blob/main/glide_text2im/nn.py
+        half = dim // 2
+        freqs = torch.exp(
+            -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half
+        ).to(device=t.device)
+        args = t[:, None].float() * freqs[None]
+        embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
+        if dim % 2:
+            embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
+        return embedding
+
+    def forward(self, t):
+        t_freq = self.timestep_embedding(t, self.frequency_embedding_size)
+        t_emb = self.mlp(t_freq)
+        return t_emb
+
+
+class ResBlock(nn.Module):
+    """
+    A residual block that can optionally change the number of channels.
+    :param channels: the number of input channels.
+    """
+
+    def __init__(
+        self,
+        channels
+    ):
+        super().__init__()
+        self.channels = channels
+
+        self.in_ln = nn.LayerNorm(channels, eps=1e-6)
+        self.mlp = nn.Sequential(
+            nn.Linear(channels, channels, bias=True),
+            nn.SiLU(),
+            nn.Linear(channels, channels, bias=True),
+        )
+
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(channels, 3 * channels, bias=True)
+        )
+
+    def forward(self, x, y):
+        shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(y).chunk(3, dim=-1)
+        h = modulate(self.in_ln(x), shift_mlp, scale_mlp)
+        h = self.mlp(h)
+        return x + gate_mlp * h
+
+
+class FinalLayer(nn.Module):
+    """
+    The final layer adopted from DiT.
+    """
+    def __init__(self, model_channels, out_channels):
+        super().__init__()
+        self.norm_final = nn.LayerNorm(model_channels, elementwise_affine=False, eps=1e-6)
+        self.linear = nn.Linear(model_channels, out_channels, bias=True)
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(model_channels, 2 * model_channels, bias=True)
+        )
+
+    def forward(self, x, c):
+        shift, scale = self.adaLN_modulation(c).chunk(2, dim=-1)
+        x = modulate(self.norm_final(x), shift, scale)
+        x = self.linear(x)
+        return x
+
+
+class SimpleMLPAdaLN(nn.Module):
+    """
+    The MLP for Diffusion Loss.
+    :param in_channels: channels in the input Tensor.
+    :param model_channels: base channel count for the model.
+    :param out_channels: channels in the output Tensor.
+    :param z_channels: channels in the condition.
+    :param num_res_blocks: number of residual blocks per downsample.
+    """
+
+    def __init__(
+        self,
+        in_channels,
+        model_channels,
+        out_channels,
+        z_channels,
+        num_res_blocks,
+        grad_checkpointing=False,
+    ):
+        super().__init__()
+
+        self.in_channels = in_channels
+        self.model_channels = model_channels
+        self.out_channels = out_channels
+        self.num_res_blocks = num_res_blocks
+        self.grad_checkpointing = grad_checkpointing
+
+        self.time_embed = TimestepEmbedder(model_channels)
+        self.cond_embed = nn.Linear(z_channels, model_channels)
+
+        self.input_proj = nn.Linear(in_channels, model_channels)
+
+        res_blocks = []
+        for i in range(num_res_blocks):
+            res_blocks.append(ResBlock(
+                model_channels,
+            ))
+
+        self.res_blocks = nn.ModuleList(res_blocks)
+        self.final_layer = FinalLayer(model_channels, out_channels)
+
+        self.initialize_weights()
+
+    def initialize_weights(self):
+        def _basic_init(module):
+            if isinstance(module, nn.Linear):
+                torch.nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
+        self.apply(_basic_init)
+
+        # Initialize timestep embedding MLP
+        nn.init.normal_(self.time_embed.mlp[0].weight, std=0.02)
+        nn.init.normal_(self.time_embed.mlp[2].weight, std=0.02)
+
+        # Zero-out adaLN modulation layers
+        for block in self.res_blocks:
+            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
+            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
+
+        # Zero-out output layers
+        nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)
+        nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
+        nn.init.constant_(self.final_layer.linear.weight, 0)
+        nn.init.constant_(self.final_layer.linear.bias, 0)
+
+    def forward(self, x, t, c):
+        """
+        Apply the model to an input batch.
+        :param x: an [N x C] Tensor of inputs.
+        :param t: a 1-D batch of timesteps.
+        :param c: conditioning from AR transformer.
+        :return: an [N x C] Tensor of outputs.
+        """
+        x = self.input_proj(x)
+        t = self.time_embed(t)
+        c = self.cond_embed(c)
+
+        y = t + c
+
+        if self.grad_checkpointing and not torch.jit.is_scripting():
+            for block in self.res_blocks:
+                x = checkpoint(block, x, y)
+        else:
+            for block in self.res_blocks:
+                x = block(x, y)
+
+        return self.final_layer(x, y)
+
+    def forward_with_cfg(self, x, t, c, cfg_scale):
+        half = x[: len(x) // 2]
+        combined = torch.cat([half, half], dim=0)
+        model_out = self.forward(combined, t, c)
+        eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
+        cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
+        half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
+        eps = torch.cat([half_eps, half_eps], dim=0)
+        return torch.cat([eps, rest], dim=1)
     
 
 def _expand_token(token, batch_size: int):
@@ -548,6 +745,12 @@ class QuadTokDecoder(nn.Module):
 
         self.conv_out = nn.Conv2d(self.decoder_channels[-1], 3, 3, padding=1, bias=True)
 
+        # self.ordered_full_nodes = self._get_ordered_nodes(build_quadtree(self.num_patch_side_list))
+        # ordered_lod_indices = [node.lod_level for node in self.ordered_full_nodes]
+        # ordered_patch_indices = [node.patch_index for node in self.ordered_full_nodes]
+        # self.register_buffer("ordered_lod_indices", torch.tensor(ordered_lod_indices, dtype=torch.long))
+        # self.register_buffer("ordered_patch_indices", torch.tensor(ordered_patch_indices, dtype=torch.long))
+
     def _get_ordered_nodes(self, root_node):
         if not root_node:
             return []
@@ -566,6 +769,16 @@ class QuadTokDecoder(nn.Module):
             ordered_nodes.extend(nodes_by_lod[i])
             
         return ordered_nodes
+    
+    def _get_all_node_embeddings(self, batch_size, device):
+        lod_embeddings = []
+        for node in self.ordered_full_nodes:
+            lod_idx, index = node.lod_level, node.patch_index
+            index_tensor = torch.tensor([index], dtype=torch.long, device=device)
+            embedding = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)
+            lod_embeddings.append(embedding)
+        flat_token_sequence = torch.cat(lod_embeddings, dim=0)
+        return flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
 
     def hierarchical_latent_decode(self, tree_structure, batch_size):
         device = self.latent_token_positional_embedding.device
@@ -653,6 +866,85 @@ class QuadTokDecoder(nn.Module):
             
         return previous_feature_map
 
+    def hierarchical_latent_decode_batch(self, tree_structure_list, batch_size):
+        """
+        Batch version of hierarchical_latent_decode for multiple tree structures.
+        All trees should have the same structure (same number of nodes at each LOD).
+        
+        Args:
+            tree_structure_list: List of tree structures with node.node_feature already set
+            batch_size: Number of trees (should equal len(tree_structure_list))
+        
+        Returns:
+            Feature maps with shape (batch_size, C, H, W)
+        """
+        device = self.latent_token_positional_embedding.device
+        dtype = self.latent_token_positional_embedding.dtype
+
+        # Get ordered_nodes for all trees and organize by LOD
+        all_nodes_by_lod = {lod_idx: [] for lod_idx in range(self.num_lod)}
+        for tree_structure in tree_structure_list:
+            ordered_nodes = []
+            for key, value in tree_structure.items():
+                ordered_nodes.extend(value)
+
+            nodes_by_lod = {i: [] for i in range(self.num_lod)}
+            for node in ordered_nodes:
+                nodes_by_lod[node.lod_level].append(node)
+            for lod_idx in range(self.num_lod):
+                all_nodes_by_lod[lod_idx].append(nodes_by_lod[lod_idx])
+        
+
+        previous_feature_map = None
+        for lod_idx in range(self.num_lod):
+            channels = self.decoder_channels[lod_idx]
+            patch_size = self.patch_size_list[lod_idx]
+            if lod_idx == 0:
+                upsampled_map = torch.zeros(batch_size, channels, patch_size, patch_size, device=device, dtype=dtype)
+            else:
+                upsampler = self.upsamplers[lod_idx - 1]
+                upsampled_map = upsampler(previous_feature_map)
+
+            current_lod_patch_canvas = torch.zeros(batch_size, channels, upsampled_map.shape[-2], upsampled_map.shape[-1], device=device, dtype=dtype)
+            # Process all trees for this LOD
+            nodes_in_lod_list = all_nodes_by_lod[lod_idx]
+            if any(nodes_in_lod_list):  # If any tree has nodes at this LOD
+                unpatch_fn = self.latent_unpatchers[str(lod_idx)]
+                num_patches_per_side = self.num_patch_side_list[lod_idx]
+                
+                # Process each tree in the batch
+                st_for_loop = time.time()
+                for tree_idx, nodes_in_lod in enumerate(nodes_in_lod_list):
+                    if nodes_in_lod:
+                        # Collect features for all nodes in this tree at this LOD
+                        features_list = [node.node_feature.squeeze(0) for node in nodes_in_lod]  # Remove batch dim
+                        features_tensor = torch.stack(features_list, dim=0)  # (num_nodes_in_lod, D)
+                        
+                        # Batch unpatch: (num_nodes_in_lod, C, patch_size, patch_size)
+                        unpatched_features = unpatch_fn(features_tensor)
+                        
+                        # Use vectorized scatter for better efficiency
+                        # Collect all patch indices and positions
+                        patch_indices = torch.tensor([node.patch_index for node in nodes_in_lod], dtype=torch.long, device=device)
+                        rows = patch_indices // num_patches_per_side
+                        cols = patch_indices % num_patches_per_side
+                        y_starts = rows * patch_size
+                        x_starts = cols * patch_size
+                        
+                        # Use scatter_patches for vectorized operation
+                        batch_coords = torch.full((len(nodes_in_lod),), tree_idx, dtype=torch.long, device=device)
+                        current_lod_patch_canvas = scatter_patches(
+                            current_lod_patch_canvas,
+                            unpatched_features.to(current_lod_patch_canvas.dtype),
+                            batch_coords,
+                            y_starts,
+                            x_starts,
+                            patch_size
+                        )
+            final_lod_feature_map = upsampled_map + current_lod_patch_canvas
+            previous_feature_map = final_lod_feature_map
+        return previous_feature_map
+
     def hierarchical_latent_decode_by_dict(self, feature, tree_dict, all_prob):
         batch_size = feature.shape[0]
         device = self.latent_token_positional_embedding.device
@@ -691,14 +983,14 @@ class QuadTokDecoder(nn.Module):
             
         return previous_feature_map
 
-    def hierarchical_latent_decode_by_actions(self, feature, action_dict, prob_dict):
-        batch_size = feature.shape[0]
+    def hierarchical_latent_decode_by_mask(self, feature, attn_padding_mask):
         device = self.latent_token_positional_embedding.device
         dtype = self.latent_token_positional_embedding.dtype
-        breakpoint()
+        batch_size = feature.shape[0]
+
         previous_feature_map = None
         for lod_idx in range(self.num_lod):
-            # lod_start_idx = self.lod_start_indices[lod_idx]
+
             channels = self.decoder_channels[lod_idx]
             patch_size = self.patch_size_list[lod_idx]
             if lod_idx == 0:
@@ -708,21 +1000,56 @@ class QuadTokDecoder(nn.Module):
                 upsampled_map = upsampler(previous_feature_map)
 
             current_lod_patch_canvas = torch.zeros(batch_size, channels, upsampled_map.shape[-2], upsampled_map.shape[-1], device=device, dtype=dtype)
+            
 
-            node_idx_lod = tree_dict[lod_idx]
-            lod_start_idx = sum(len(tree_dict[used_lod_idx]) for used_lod_idx in range(lod_idx))
-            if len(node_idx_lod) != 0:
-                unpatch_fn = self.latent_unpatchers[str(lod_idx)]
-                for feat_idx, node_idx in enumerate(node_idx_lod):
-                    latent_patch = unpatch_fn(feature[:, lod_start_idx + feat_idx]) * all_prob[lod_start_idx + feat_idx]
+            lod_node_mask = (self.ordered_lod_indices == lod_idx) 
+            lod_node_indices = torch.nonzero(lod_node_mask, as_tuple=False).squeeze(-1)  # Indices in ordered_full_nodes
+            if len(lod_node_indices) > 0:
+                features_lod = feature[:, lod_node_indices, :]  # (batch_size, num_nodes_in_lod, feature_dim
+                mask_lod = ~attn_padding_mask[:, lod_node_indices]  # True for valid, False for masked
+                
+                features_lod = features_lod * mask_lod.unsqueeze(-1).float()  # (batch_size, num_nodes_in_lod, feature_dim)
+                
+                patch_indices_lod = self.ordered_patch_indices[lod_node_indices]  # (num_nodes_in_lod,)
+                
+                # Reshape for latent_unpatcher: (batch_size * num_nodes_in_lod, feature_dim)
+                batch_size_lod, num_nodes_lod, feature_dim = features_lod.shape
+                features_flat = features_lod.view(batch_size_lod * num_nodes_lod, feature_dim)
+                
+                # Apply unpatch: (batch_size * num_nodes_in_lod, C, H, W)
+                unpatched_flat = self.latent_unpatchers[str(lod_idx)](features_flat)
+                
+                # Reshape back: (batch_size, num_nodes_in_lod, C, H, W)
+                out_channels = self.decoder_channels[lod_idx]
+                patch_size = self.patch_size_list[lod_idx]
+                unpatched_features = unpatched_flat.view(batch_size_lod, num_nodes_lod, out_channels, patch_size, patch_size)
+                
+                num_patches_per_side = self.num_patch_side_list[lod_idx]
+                
+                rows = patch_indices_lod // num_patches_per_side  # (num_nodes_in_lod,)
+                cols = patch_indices_lod % num_patches_per_side   # (num_nodes_in_lod,)
+                
+                y_starts = rows * patch_size  # (num_nodes_in_lod,)
+                x_starts = cols * patch_size  # (num_nodes_in_lod,)
+                
+                valid_mask = mask_lod  # (batch_size, num_nodes_in_lod)
+                
+                if valid_mask.any():
+                    batch_indices, feature_indices = torch.nonzero(valid_mask, as_tuple=True)  # Both are (num_valid_total,)
                     
-                    num_patches_per_side = self.num_patch_side_list[lod_idx]
-                    row, col = divmod(node_idx, num_patches_per_side)
+                    valid_unpatched = unpatched_features[batch_indices, feature_indices]  # (num_valid_total, C, H, W)
                     
-                    y_start, x_start = row * patch_size, col * patch_size
-                    y_end, x_end = y_start + patch_size, x_start + patch_size
-
-                    current_lod_patch_canvas[:, :, y_start:y_end, x_start:x_end] = latent_patch
+                    valid_y_starts = y_starts[feature_indices]  # (num_valid_total,)
+                    valid_x_starts = x_starts[feature_indices]  # (num_valid_total,)
+                    
+                    current_lod_patch_canvas = scatter_patches(
+                        current_lod_patch_canvas,
+                        valid_unpatched.to(current_lod_patch_canvas.dtype),
+                        batch_indices,
+                        valid_y_starts,  # (num_valid_total,)
+                        valid_x_starts,  # (num_valid_total,)
+                        patch_size
+                    )
 
             final_lod_feature_map = upsampled_map + current_lod_patch_canvas
             previous_feature_map = final_lod_feature_map
@@ -771,76 +1098,143 @@ class QuadTokDecoder(nn.Module):
         reconstructd_image = self.conv_out(upsampled_latent)
         return reconstructd_image
     
-    def _forward_optimize(self, z_quantized, decision_node, actions_list, action_idx_mapping):
-        batch_size, seq_len, _ = z_quantized.shape
-        z_quantized = self.decoder_embed(z_quantized)
-        lod_embeddings = []
-        actions, opt_probs = actions_list
-        for lod_idx in range(self.num_lod):
-            if lod_idx in decision_node.keys():
-                decision_idx_list = decision_node[lod_idx]
-                for index in decision_idx_list:
-                    device = self.token_incides_embedding_dict[str(lod_idx)].weight.device
-                    index_tensor = torch.tensor([index], dtype=torch.long, device=device)
-                    embedding = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)
-                    lod_embeddings.append(embedding)
-            elif lod_idx == max(decision_node.keys()) + 1:
-                index_tensor = torch.arange(actions.shape[0], dtype=torch.long, device=device)
-                embedding_readout = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)
-                embedding_readout = embedding_readout * actions.unsqueeze(-1)
-                embedding = embedding_readout[actions.bool()]
-                lod_embeddings.append(embedding)
+    def _forward_optimize(self, z_quantized, tree_structure_list):
+        """
+        Batch version of _forward_reconstruction for optimization.
+        
+        Args:
+            z_quantized: Quantized tokens for each tree (batch_size, seq_len, D) or (1, seq_len, D) if single image
+            tree_structure_list: List of tree structures, each tree should have the same number of nodes after BFS
+        
+        Returns:
+            Reconstructed images with shape (len(tree_structure_list), 3, H, W)
+        """
+        # Get batch size from tree_structure_list
+        batch_size = len(tree_structure_list)
+        device = z_quantized.device
+        D = self.latent_token_positional_embedding.shape[-1]
+        dtype = z_quantized.dtype
+        
+        # Get ordered_nodes for all trees
+        ordered_nodes_list = []
+        updated_tree_structure_list = []
+        for tree_structure in tree_structure_list:
+            ordered_nodes = []
+            new_tree_structure = {}
+            for key, value in tree_structure.items():
+                if isinstance(value[0], QuadTreeNode):
+                    ordered_nodes.extend(value)
+                elif isinstance(value[0], dict):
+                    value_nodes = []
+                    for node_dict in value:
+                        node = QuadTreeNode(node_dict['lod_level'], node_dict['patch_index'])
+                        value_nodes.append(node)
+                    ordered_nodes.extend(value_nodes)
+                    new_tree_structure[key] = value_nodes
+                else:
+                    NotImplementedError("Only QuadTreeNode is supported for now")
+            ordered_nodes_list.append(ordered_nodes)
+            if len(new_tree_structure.keys()) > 0:
+                updated_tree_structure_list.append(new_tree_structure)
 
-        flat_token_sequence = torch.cat(lod_embeddings, dim=0)
-        flat_token_sequence = flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
+        if len(updated_tree_structure_list) > 0:
+            tree_structure_list = updated_tree_structure_list
 
-        all_prob = torch.ones(seq_len, device=device)
-        all_prob[-opt_probs.shape[0]:] = opt_probs
+        seq_lengths = [len(nodes) for nodes in ordered_nodes_list]
+        max_seq_len_tree = max(seq_lengths) if seq_lengths else 0
+        padded_patch_indices = torch.full((batch_size, max_seq_len_tree), 0, dtype=torch.long, device=device)
+        padded_lod_indices = torch.full((batch_size, max_seq_len_tree), -1, dtype=torch.long, device=device)
 
-        x = z_quantized + flat_token_sequence + self.latent_token_positional_embedding[:seq_len]
+        for b, (ordered_nodes, length) in enumerate(zip(ordered_nodes_list, seq_lengths)):
+            if length > 0:
+                patch_indices = torch.tensor([node.patch_index for node in ordered_nodes], dtype=torch.long, device=device)
+                lod_indices = torch.tensor([node.lod_level for node in ordered_nodes], dtype=torch.long, device=device)
+                padded_patch_indices[b, :length] = patch_indices
+                padded_lod_indices[b, :length] = lod_indices
+        raw_embeddings = torch.zeros(batch_size, max_seq_len_tree, D, device=device, dtype=dtype)
+        
+        for lod_idx_str, embedding_layer in self.token_incides_embedding_dict.items():
+            lod_idx_int = int(lod_idx_str)
+            mask_this_lod = (padded_lod_indices == lod_idx_int)
+            indices_to_lookup = padded_patch_indices[mask_this_lod]      
+            embeddings = embedding_layer(indices_to_lookup)
+            
+            mask_this_lod_expanded = mask_this_lod.unsqueeze(-1)
+            raw_embeddings.masked_scatter_(mask_this_lod_expanded, embeddings.to(dtype))
 
+        seq_lengths_tensor = torch.tensor(seq_lengths, device=device)
+        padding_mask = torch.arange(max_seq_len_tree, device=device).expand(batch_size, max_seq_len_tree) >= seq_lengths_tensor.unsqueeze(1)
+            
+        # Embed z_quantized: (batch_size, seq_len, D)
+        token_pe = self.latent_token_positional_embedding[:max_seq_len_tree]
+        z_quantized_embedded = self.decoder_embed(z_quantized)
+        
+        # Add positional embeddings to token sequence
+        flat_token_sequence = raw_embeddings + token_pe
+        if z_quantized_embedded.shape[1] != flat_token_sequence.shape[1]:
+            z_quantized_embedded = z_quantized_embedded[:, :flat_token_sequence.shape[1], :]
+        x = z_quantized_embedded + flat_token_sequence
+        x.masked_fill_(padding_mask.unsqueeze(-1), 0.0)
+
+        # Apply transformer
         x = self.ln_pre(x)
         x = x.permute(1, 0, 2)  # NLD -> LND
         for i in range(self.num_layers):
-            x = self.transformer[i](x)
+            x = self.transformer[i](x, key_padding_mask=padding_mask)
         x = x.permute(1, 0, 2)  # LND -> NLD
         x = self.ln_post(x)
-        # x = self.attn_out(x)
 
-        tmp_tree_dict = copy.deepcopy(decision_node)
-        tmp_tree_dict.update({max(decision_node.keys()) + 1:  torch.tensor(action_idx_mapping, device=actions.device)[actions.bool()].tolist()})
-        # tree_structure = construct_tree_from_dict(tmp_tree_dict, self.patch_size_list)
-        # self.update_features_in_tree(x, tree_structure)
+        # Update features in trees for hierarchical decode
+        for i, (tree_structure, ordered_nodes) in enumerate(zip(tree_structure_list, ordered_nodes_list)):
+            for j, node in enumerate(ordered_nodes):
+                node.node_feature = x[i, j:j+1, :]  # (1, D)
+        
+        # Batch hierarchical decode
+        upsampled_latent = self.hierarchical_latent_decode_batch(tree_structure_list, batch_size)
+        reconstructed_image = self.conv_out(upsampled_latent)
+        
+        return reconstructed_image
 
-        upsampled_latent = self.hierarchical_latent_decode_by_dict(x, tmp_tree_dict, all_prob)
-
-        reconstructd_image = self.conv_out(upsampled_latent)
-        return reconstructd_image
-
-    def _forward_policy(self, z_quantized, policy_result, prob_result):
+    def _forward_policy(self, z_quantized, action_dict, attn_padding_mask):
         batch_size, seq_len, _ = z_quantized.shape
+        device = z_quantized.device
         z_quantized = self.decoder_embed(z_quantized)
-        lod_embeddings = []
-        for lod_idx in range(self.num_lod):
-            actions = policy_result[lod_idx]
-            index_tensor = torch.arange(actions.shape[0], dtype=torch.long, device=device)
-            embedding_readout = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)
-            embedding_readout = embedding_readout * actions.unsqueeze(-1)
-            embedding = embedding_readout[actions.bool()]
-            lod_embeddings.append(embedding)
+        flat_token_sequence = self._get_all_node_embeddings(batch_size, device)
+        seq_len = flat_token_sequence.shape[1]
 
-        flat_token_sequence = torch.cat(lod_embeddings, dim=0)
-        flat_token_sequence = flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
-        x = z_quantized + flat_token_sequence + self.latent_token_positional_embedding[:seq_len]
+        token_mask = ~attn_padding_mask 
+
+        valid_pos_indices = torch.cumsum(token_mask.long(), dim=1) - 1  # (batch_size, seq_len)
+        valid_pos_indices = valid_pos_indices * token_mask.long()  # Set invalid positions to 0
+        valid_pos_indices = torch.clamp(valid_pos_indices, min=0)  # Ensure non-negative
+
+        max_valid_pos = valid_pos_indices.max().item() + 1 if token_mask.any() else 0
+        
+        if max_valid_pos > 0:
+            pos_emb = self.latent_token_positional_embedding[:max_valid_pos]
+            pos_emb_batched = pos_emb.unsqueeze(0).expand(batch_size, -1, -1)  # (batch_size, max_valid_pos, D)
+            valid_pos_indices_expanded = valid_pos_indices.unsqueeze(-1).expand(-1, -1, pos_emb.shape[-1])  # (batch_size, seq_len, D)
+
+            token_pos_embeddings = torch.gather(
+                pos_emb_batched,
+                dim=1,
+                index=valid_pos_indices_expanded
+            )
+            token_pos_embeddings = token_pos_embeddings * token_mask.unsqueeze(-1).float()
+        else:
+            token_pos_embeddings = torch.zeros_like(flat_token_sequence)
+        
+        flat_token_sequence = flat_token_sequence + token_pos_embeddings
+        x = z_quantized + flat_token_sequence
 
         x = self.ln_pre(x)
         x = x.permute(1, 0, 2)  # NLD -> LND
         for i in range(self.num_layers):
-            x = self.transformer[i](x)
+            x = self.transformer[i](x, key_padding_mask=attn_padding_mask)
         x = x.permute(1, 0, 2)  # LND -> NLD
         x = self.ln_post(x)
         
-        upsampled_latent = self.hierarchical_latent_decode_by_actions(x, policy_result, prob_result)
+        upsampled_latent = self.hierarchical_latent_decode_by_mask(x, attn_padding_mask)
         reconstructed_image = self.conv_out(upsampled_latent)
         
         return reconstructed_image
@@ -910,6 +1304,8 @@ class QuadTokSelctor(nn.Module):
         self.ln_post = nn.LayerNorm(self.width)
         self.out_proj = nn.Linear(self.width, self.token_size)
 
+        self.ordered_full_nodes = self._get_ordered_nodes(build_quadtree(self.num_patch_side_list))
+
 
     def _get_ordered_nodes(self, root_node):
         if not root_node:
@@ -929,6 +1325,20 @@ class QuadTokSelctor(nn.Module):
             ordered_nodes.extend(nodes_by_lod[i])
             
         return ordered_nodes
+
+    def _get_all_node_embeddings(self, batch_size, device):
+        lod_embeddings = []
+        for node in self.ordered_full_nodes:
+            lod_idx, index = node.lod_level, node.patch_index
+            if str(lod_idx) in self.token_incides_embedding_dict.keys():
+                index_tensor = torch.tensor([index], dtype=torch.long, device=device)
+                embedding = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)
+                lod_embeddings.append(embedding)
+        
+        # (num_total_nodes, D)
+        flat_token_sequence = torch.cat(lod_embeddings, dim=0)
+        # (B, num_total_nodes, D)
+        return flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
 
     def _forward_reconstruction(self, latent_feats, tree_structure):
         batch_size = latent_feats.shape[0]
@@ -961,29 +1371,43 @@ class QuadTokSelctor(nn.Module):
         x = x.permute(0, 2, 1).unsqueeze(2).contiguous()
         return x
     
-    def _forward_policy(self, latent_feats, policy_result):
+    def _forward_policy(self, latent_feats, attn_padding_mask):
         batch_size = latent_feats.shape[0]
         device = latent_feats.device
-        lod_embeddings = []
-        for lod_idx in range(self.num_lod):
-            actions = policy_result[lod_idx]
-            index_tensor = torch.arange(actions.shape[1], dtype=torch.long, device=device)
-            embedding_readout = self.token_incides_embedding_dict[str(lod_idx)](index_tensor).unsqueeze(0).repeat(batch_size, 1, 1)
-            embedding_readout = embedding_readout * actions
-            embedding = embedding_readout[actions.bool().squeeze(-1)]
-            lod_embeddings.append(embedding)
 
-        flat_token_sequence = torch.cat(lod_embeddings, dim=0)
-        flat_token_sequence = flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
-
+        flat_token_sequence = self._get_all_node_embeddings(batch_size, device)
         seq_len = flat_token_sequence.shape[1]
-        flat_token_sequence += self.latent_token_positional_embedding[:seq_len]
+
+        full_padding_mask = torch.cat([torch.zeros(batch_size, latent_feats.shape[1], dtype=torch.bool, device=device), attn_padding_mask], dim=1)
+        token_mask = ~attn_padding_mask 
+
+        valid_pos_indices = torch.cumsum(token_mask.long(), dim=1) - 1  # (batch_size, seq_len)
+        valid_pos_indices = valid_pos_indices * token_mask.long()  # Set invalid positions to 0
+        valid_pos_indices = torch.clamp(valid_pos_indices, min=0)  # Ensure non-negative
+
+        max_valid_pos = valid_pos_indices.max().item() + 1 if token_mask.any() else 0
+        
+        if max_valid_pos > 0:
+            pos_emb = self.latent_token_positional_embedding[:max_valid_pos]
+            pos_emb_batched = pos_emb.unsqueeze(0).expand(batch_size, -1, -1)  # (batch_size, max_valid_pos, D)
+            valid_pos_indices_expanded = valid_pos_indices.unsqueeze(-1).expand(-1, -1, pos_emb.shape[-1])  # (batch_size, seq_len, D)
+
+            token_pos_embeddings = torch.gather(
+                pos_emb_batched,
+                dim=1,
+                index=valid_pos_indices_expanded
+            )
+            token_pos_embeddings = token_pos_embeddings * token_mask.unsqueeze(-1).float()
+        else:
+            token_pos_embeddings = torch.zeros_like(flat_token_sequence)
+        
+        flat_token_sequence = flat_token_sequence + token_pos_embeddings
         x = torch.cat([latent_feats, flat_token_sequence], dim=1)
 
         x = self.ln_pre(x)
         x = x.permute(1, 0, 2)  # NLD -> LND
         for i in range(self.num_layers):
-            x = self.transformer[i](x)
+            x = self.transformer[i](x, key_padding_mask=full_padding_mask)
         x = x.permute(1, 0, 2)  # LND -> NLD
         x = x[:, -seq_len:]
         x = self.ln_post(x)
@@ -991,39 +1415,72 @@ class QuadTokSelctor(nn.Module):
 
         x = x.permute(0, 2, 1).unsqueeze(2).contiguous()
         
-        return policy_result
+        return x
 
-    def _forward_optimize(self, latent_feats, decision_node, actions):
-        batch_size = latent_feats.shape[0]
-        lod_embeddings = []
-        for lod_idx in range(self.num_lod):
-            if lod_idx in decision_node.keys():
-                decision_idx_list = decision_node[lod_idx]
-                for index in decision_idx_list:
-                    device = self.token_incides_embedding_dict[str(lod_idx)].weight.device
-                    index_tensor = torch.tensor([index], dtype=torch.long, device=device)
-                    embedding = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)
-                    lod_embeddings.append(embedding)
-            elif lod_idx ==  max(decision_node.keys()) + 1:
-                index_tensor = torch.arange(actions.shape[0], dtype=torch.long, device=device)
-                embedding_readout = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)
-                embedding_readout = embedding_readout * actions.unsqueeze(-1)
-                embedding = embedding_readout[actions.bool()]
-                lod_embeddings.append(embedding)
+    def _forward_optimize(self, latent_feats, tree_structure_list, batch_expand_list=None):
+        if latent_feats.ndim == 2:
+            latent_feats = latent_feats.unsqueeze(0)  # (1, num_latent_tokens, D)
+        
+        # Get batch size from tree_structure_list
+        batch_size = len(tree_structure_list)
+        device = latent_feats.device
+        D = self.latent_token_positional_embedding.shape[-1]
+        dtype = latent_feats.dtype
+        
+        # Get ordered_nodes for all trees
+        ordered_nodes_list = []
+        for tree_structure in tree_structure_list:
+            ordered_nodes = []
+            for key, value in tree_structure.items():
+                ordered_nodes.extend(value)
+            ordered_nodes_list.append(ordered_nodes)
 
-        flat_token_sequence = torch.cat(lod_embeddings, dim=0)
-        flat_token_sequence = flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
+        seq_lengths = [len(nodes) for nodes in ordered_nodes_list]
+        max_seq_len_tree = max(seq_lengths) if seq_lengths else 0
+        padded_patch_indices = torch.full((batch_size, max_seq_len_tree), 0, dtype=torch.long, device=device)
+        padded_lod_indices = torch.full((batch_size, max_seq_len_tree), -1, dtype=torch.long, device=device)
 
-        seq_len = flat_token_sequence.shape[1]
-        flat_token_sequence += self.latent_token_positional_embedding[:seq_len]
+        for b, (ordered_nodes, length) in enumerate(zip(ordered_nodes_list, seq_lengths)):
+            if length > 0:
+                patch_indices = torch.tensor([node.patch_index for node in ordered_nodes], dtype=torch.long, device=device)
+                lod_indices = torch.tensor([node.lod_level for node in ordered_nodes], dtype=torch.long, device=device)
+                padded_patch_indices[b, :length] = patch_indices
+                padded_lod_indices[b, :length] = lod_indices
+        raw_embeddings = torch.zeros(batch_size, max_seq_len_tree, D, device=device, dtype=dtype)
+        
+        for lod_idx_str, embedding_layer in self.token_incides_embedding_dict.items():
+            lod_idx_int = int(lod_idx_str)
+            mask_this_lod = (padded_lod_indices == lod_idx_int)
+            indices_to_lookup = padded_patch_indices[mask_this_lod]      
+            embeddings = embedding_layer(indices_to_lookup)
+            
+            mask_this_lod_expanded = mask_this_lod.unsqueeze(-1)
+            raw_embeddings.masked_scatter_(mask_this_lod_expanded, embeddings.to(dtype))
+
+        seq_lengths_tensor = torch.tensor(seq_lengths, device=device)
+        tree_mask = torch.arange(max_seq_len_tree, device=device).expand(batch_size, max_seq_len_tree) >= \
+                    seq_lengths_tensor.unsqueeze(1)
+        token_pe = self.latent_token_positional_embedding[:max_seq_len_tree]
+        flat_token_sequence = raw_embeddings + token_pe.unsqueeze(0)
+        
+        flat_token_sequence.masked_fill_(tree_mask.unsqueeze(-1), 0.0)
+
+        if latent_feats.shape[0] != batch_size:
+            assert batch_expand_list is not None
+            batch_expand_list_tensor = torch.tensor(batch_expand_list, device=device, dtype=torch.long)
+            latent_feats = torch.repeat_interleave(latent_feats, batch_expand_list_tensor, dim=0)
+
+        latent_mask = torch.zeros(batch_size, latent_feats.shape[1], dtype=torch.bool, device=device)
+        padding_mask = torch.cat([latent_mask, tree_mask], dim=1)
+
         x = torch.cat([latent_feats, flat_token_sequence], dim=1)
-
         x = self.ln_pre(x)
         x = x.permute(1, 0, 2)  # NLD -> LND
         for i in range(self.num_layers):
-            x = self.transformer[i](x)
+            x = self.transformer[i](x, key_padding_mask=padding_mask)
         x = x.permute(1, 0, 2)  # LND -> NLD
-        x = x[:, -seq_len:]
+        
+        x = x[:, latent_feats.shape[1]:]
         x = self.ln_post(x)
         x = self.out_proj(x)
 

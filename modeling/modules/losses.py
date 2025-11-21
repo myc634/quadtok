@@ -27,6 +27,9 @@ from torch.amp import autocast
 from .perceptual_loss import PerceptualLoss
 from .discriminator import NLayerDiscriminator
 
+from modeling.diffusion import create_diffusion
+from modeling.modules.blocks import SimpleMLPAdaLN
+
 def get_linear_decay_entropy_weight(
     global_step: int, 
     initial_weight: float = 0.01, 
@@ -452,7 +455,7 @@ class ReconstructionLoss_Reward(torch.nn.Module):
         perceptual_loss = self.perceptual_loss(inputs, reconstructions).squeeze()
 
         total_loss = (
-            reconstruction_loss
+            reconstruction_loss 
             + self.perceptual_weight * perceptual_loss
         )
         loss_dict = dict(
@@ -507,15 +510,15 @@ class DiffLoss(nn.Module):
     """Diffusion Loss"""
     def __init__(self, config):
         super(DiffLoss, self).__init__()
-        self.in_channels = config.model.vq_model.token_size
+        self.in_channels = config.tokenizer.vae_embed_dim
 
         self.net = SimpleMLPAdaLN(
             in_channels=self.in_channels,
             model_channels=config.losses.diffloss_w,
             out_channels=self.in_channels * 2,  # for vlb loss
-            z_channels=config.model.maskgen.decoder_embed_dim,
+            z_channels=config.losses.model_embed_dim,
             num_res_blocks=config.losses.diffloss_d,
-            grad_checkpointing=config.get("training.grad_checkpointing", False),
+            grad_checkpointing=config.model.grad_checkpointing,
         )
 
         self.train_diffusion = create_diffusion(timestep_respacing="", noise_schedule="cosine")
@@ -546,7 +549,6 @@ class DiffLoss(nn.Module):
             noise = torch.randn(z.shape[0], self.in_channels).cuda()
             model_kwargs = dict(c=z)
             sample_fn = self.net.forward
-
         sampled_token_latent = self.gen_diffusion.p_sample_loop(
             sample_fn, noise.shape, noise, clip_denoised=False, model_kwargs=model_kwargs, progress=False,
             temperature=temperature

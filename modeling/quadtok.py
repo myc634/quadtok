@@ -15,6 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+from typing import Any
 import torch
 import torch.nn as nn
 from einops import rearrange
@@ -102,7 +103,8 @@ class QuadTok(BaseModel):
 
     def _forward_reconstruction(self, x):
         latent_feats = self.encode(x)
-        tree_structure = build_probabilistic_quadtree(self.num_patch_side_list, guaranteed_depth=3, expansion_probs=[0.7, 0.4])
+        # guaranteed_depth=1, expansion_probs=[0.8, 0.7, 0.6, 0.5] guaranteed_depth=2, expansion_probs=[0.7, 0.6, 0.5]
+        tree_structure = build_probabilistic_quadtree(self.num_patch_side_list, guaranteed_depth=3, expansion_probs=[0.7, 0.5]) # 
         z = self.selector(latent_feats, tree_structure)
 
         if self.quantize_mode == "vq":
@@ -115,18 +117,15 @@ class QuadTok(BaseModel):
         
         return decoded, result_dict
 
-    def decoding_pre_selector(self, latent_feats, policy_output):
-        policy_output = self.selector(latent_feats, tree_structure=None, policy_output=policy_output)
-        result_dict = dict(policy_output=policy_output)
-        if self.quantize_mode == "vae":
-            posteriors = self.quantize(policy_output['z_to_quantize'])
-        else:
-            NotImplementedError
-        z_quantized = posteriors.sample()
-        result_dict["posteriors"] = posteriors
-        decoded = self.decode(z_quantized.permute(0, 3, 2, 1).squeeze(2).contiguous(), policy_output)
+    def decoding_pre_selector(self, latent_feats, action_dict, attn_padding_mask):
+        z = self.selector._forward_policy(latent_feats, attn_padding_mask)
+        if self.quantize_mode == "vq":
+            z_quantized, _ = self.quantize(z)
+        elif self.quantize_mode == "vae":
+            z_quantized = self.quantize(z).sample()
+        decoded = self.decoder._forward_policy(z_quantized.permute(0, 3, 2, 1).squeeze(2).contiguous(), action_dict, attn_padding_mask)
 
-        return decoded, result_dict, 
+        return decoded
 
     def _forward_policy(self, x, policy_output):
         latent_feats = self.encode(x)
@@ -207,11 +206,12 @@ class PolicyQuadTok(BaseModel):
             lod_len_mapping[node.lod_level] += 1
 
         total_nodes_count = 0
-        for lod_idx, num_patches in enumerate(self.num_patch_side_list[: -1]):
+        for lod_idx, num_patches in enumerate(self.num_patch_side_list):
             total_patches = num_patches ** 2
             num_nodes_at_lod = lod_len_mapping[lod_idx] 
             self.max_seq_len += total_patches
-            self.policy_token_incides_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.width)
+            if lod_idx != len(self.num_patch_side_list):
+                self.policy_token_incides_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.width)
             self.lod_start_indices[lod_idx] = total_nodes_count
             self.lod_node_counts[lod_idx] = num_nodes_at_lod
             total_nodes_count += total_patches
@@ -288,145 +288,167 @@ class PolicyQuadTok(BaseModel):
         # (B, num_total_nodes, D)
         return policy_flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
 
-    def forward(self, image_latents):
-        batch_size, latent_seq_len, _ = image_latents.shape
-        device = image_latents.device
+    @torch.no_grad()
+    def rollout_trajs(self, image_latents_grouped):
 
-        # (B, num_total_nodes, D)
+        batch_size, latent_seq_len, _ = image_latents_grouped.shape
+        device = image_latents_grouped.device
+        max_depth = self.num_lod
+        trajectories = [defaultdict(list) for _ in range(batch_size)]
+
+        current_kept_mask = torch.zeros(batch_size, self.num_total_nodes, dtype=torch.bool, device=device)
+        current_kept_mask[:, 0] = True 
+
+        image_latents_with_pos = image_latents_grouped + \
+            self.policy_latent_token_positional_embedding[:latent_seq_len]
         all_node_embeddings = self._get_all_node_embeddings(batch_size, device)
         all_node_embeddings = all_node_embeddings + \
             self.policy_latent_token_positional_embedding[latent_seq_len : latent_seq_len + self.num_total_nodes]
-
-        # >> This will store the *global node indices* of active nodes for each batch item
-        # >> We use a list of lists, where each inner list holds indices for one batch item
-        active_node_indices_batch = [[] for _ in range(batch_size)]
-
-        # >> Initialize with guaranteed nodes.
-        # >> We need to map (lod, patch_index) to the global node index
-        node_map = {(node.lod_level, node.patch_index): i for i, node in enumerate(self.ordered_full_nodes)}
         
-        for node in self.ordered_full_nodes:
-            lod_idx, index = node.lod_level, node.patch_index
-            if lod_idx <= self.guaranteed_depth:
-                global_node_idx = node_map.get((lod_idx, index))
-                if global_node_idx is not None:
-                    # >> Add guaranteed nodes to *every* item in the batch
-                    for b_idx in range(batch_size):
-                        active_node_indices_batch[b_idx].append(global_node_idx)
+        # we need to first fill the input with the guaranteed nodes
+        num_tree_nodes = 0
+        for lod_idx in range(self.guaranteed_depth):
+            num_tree_nodes += self.lod_node_counts[lod_idx]
+        guaranteed_node_embeddings = all_node_embeddings[:, :num_tree_nodes, :]
+        current_transformer_input = torch.cat([image_latents_with_pos, guaranteed_node_embeddings], dim=1)
+        # now we need to fill the padding mask with the guaranteed nodes
+        current_padding_mask = torch.cat([torch.zeros(batch_size, latent_seq_len, dtype=torch.bool, device=device), torch.zeros(batch_size, num_tree_nodes + self.lod_node_counts[self.guaranteed_depth], dtype=torch.bool, device=device)], dim=1)
+        current_kept_mask[:, :num_tree_nodes + self.lod_node_counts[self.guaranteed_depth]] = True
 
-
-        final_actions = defaultdict(list)
-        all_probs = {}
-
-        # >> This is our *accumulating* context. It starts with just image latents.
-        current_context_embeddings = image_latents + \
-            self.policy_latent_token_positional_embedding[:latent_seq_len]
-        
-        # >> The mask for the image latents is all False (no padding).
-        current_context_padding_mask = torch.zeros(
-            batch_size, latent_seq_len, dtype=torch.bool, device=device
-        )
-
-        for lod_idx in range(self.num_lod - 1):
+        action_logprobs = torch.ones_like(current_kept_mask) * -10000.0
+        action_dict = {}
+        for lod_idx in range(self.guaranteed_depth, max_depth - 1):
+            lod_start_idx = self.lod_start_indices[lod_idx]
+            num_nodes_at_lod: Any = self.lod_node_counts[lod_idx]
             
+            if num_nodes_at_lod == 0:
+                continue
+                
+            node_indices_at_lod = torch.arange(
+                lod_start_idx, lod_start_idx + num_nodes_at_lod, device=device
+            )
+            
+            node_embeddings_at_lod = all_node_embeddings[:, node_indices_at_lod, :]
+            state_sequence = torch.cat([current_transformer_input, node_embeddings_at_lod], dim=1)
+
+            policy_input = self.policy_ln_pre(state_sequence)
+            policy_input = policy_input.permute(1, 0, 2)
+            for layer in self.policy_transformer:
+                policy_input = layer(policy_input, key_padding_mask=current_padding_mask)
+            policy_input = policy_input.permute(1, 0, 2)
+
+            node_features_at_lod = policy_input[:, -num_nodes_at_lod:, :]
+            logits = self.policy_net(node_features_at_lod)
+            probs = torch.sigmoid(logits)
+
+            parent_indices_at_lod = self.parent_indices[node_indices_at_lod]
+            clamped_parent_indices = torch.clamp(parent_indices_at_lod, min=0)
+            parents_kept_mask = torch.gather(
+                current_kept_mask, 1, clamped_parent_indices.expand(batch_size, -1)
+            )
+            valid_mask = parents_kept_mask.unsqueeze(-1).float()
+            
+            dist = torch.distributions.Bernoulli(probs=probs)
+            actions_t = dist.sample() 
+            actions_t = actions_t * valid_mask 
+
+            log_probs_t_vec = dist.log_prob(actions_t)
+            log_probs_t_masked = log_probs_t_vec * valid_mask
+
+            action_dict[lod_idx] = dict(actions=actions_t.squeeze(-1), log_probs=log_probs_t_masked.squeeze(-1))
+
+            current_kept_mask[:, node_indices_at_lod] = (actions_t.squeeze(-1).bool())
+            current_transformer_input = state_sequence.detach()
+            # actions need to be expeanded for next lod accroding to the parent indices
+            child2parent_incides = self.parent_indices[torch.arange(
+                self.lod_start_indices[lod_idx + 1], self.lod_start_indices[lod_idx + 1] + self.lod_node_counts[lod_idx + 1], device=device
+            )].unsqueeze(0).repeat(batch_size, 1) - lod_start_idx
+
+            child_actions_t = torch.gather(actions_t.squeeze(-1), 1, child2parent_incides) 
+            current_padding_mask = torch.cat([current_padding_mask, ~child_actions_t.bool()], dim=1)
+
+        return action_dict, current_padding_mask[:, latent_seq_len:]
+
+    def forward(self, latent_feats, action_dict):
+
+        batch_size = latent_feats.shape[0]
+        device = latent_feats.device
+        latent_seq_len = latent_feats.shape[1]
+
+        num_guaranteed_nodes, all_seq_len = 0, 0
+        for lod_idx in range(max(action_dict.keys()) + 1):
+            if lod_idx < self.guaranteed_depth:
+                num_guaranteed_nodes += self.lod_node_counts[lod_idx]
+            all_seq_len += self.lod_node_counts[lod_idx]
+
+        all_node_embeddings = self._get_all_node_embeddings(batch_size, device)
+        all_node_embeddings = all_node_embeddings + \
+            self.policy_latent_token_positional_embedding[self.latent_seq_len : self.latent_seq_len + self.num_total_nodes]
+        latent_feats_with_pos = latent_feats + \
+            self.policy_latent_token_positional_embedding[:latent_seq_len]
+
+        sequence_parts = [latent_feats_with_pos]
+        sequence_parts.append(all_node_embeddings[:, :num_guaranteed_nodes, :])
+
+        padding_mask = torch.zeros(batch_size, all_seq_len + latent_seq_len, dtype=torch.bool, device=device)
+        padding_mask[:, :num_guaranteed_nodes + latent_seq_len] = True
+
+        for lod_idx in sorted(action_dict.keys()):
+            if lod_idx < self.guaranteed_depth:
+                continue
             lod_start_idx = self.lod_start_indices[lod_idx]
             num_nodes_at_lod = self.lod_node_counts[lod_idx]
             
             if num_nodes_at_lod == 0:
                 continue
-                
-            # >> These are the "query" nodes we are deciding on for this level
-            # >> Their global node indices run from lod_start_idx to lod_start_idx + num_nodes_at_lod
-            node_indices_at_lod = torch.arange(
-                lod_start_idx, lod_start_idx + num_nodes_at_lod, device=device
-            )
             
-            # >> Get query embeddings: (B, num_nodes_at_lod, D)
-            node_embeddings_at_lod = all_node_embeddings[:, node_indices_at_lod, :]
+            node_indices = torch.arange(lod_start_idx, lod_start_idx + num_nodes_at_lod, device=device)
+            actions = action_dict[lod_idx]['actions']  # (batch_size, num_nodes_at_lod)
+            padding_mask[:, node_indices] = actions.bool()
             
-            # >> The query nodes themselves are not padded *relative to each other*
-            query_padding_mask = torch.zeros(batch_size, num_nodes_at_lod, dtype=torch.bool, device=device)
+            # Add this lod's nodes to sequence
+            sequence_parts.append(all_node_embeddings[:, node_indices, :])
 
-            # >> Build the full sequence: [current_context, query_nodes]
-            # >> current_context_embeddings has shape (B, variable_context_len, D)
-            # >> node_embeddings_at_lod has shape (B, num_nodes_at_lod, D)
-            state_sequence = torch.cat([current_context_embeddings, node_embeddings_at_lod], dim=1)
-            
-            # >> Build the full padding mask to match the state_sequence
-            full_padding_mask = torch.cat([current_context_padding_mask, query_padding_mask], dim=1)
-            
-            policy_input = self.policy_ln_pre(state_sequence)
-            policy_input = policy_input.permute(1, 0, 2)
-
-            # >> --- This is the key change ---
-            # >> Pass the key_padding_mask to the transformer
-            for layer in self.policy_transformer:
-                policy_input = layer(policy_input, key_padding_mask=full_padding_mask)
-            
-            policy_input = policy_input.permute(1, 0, 2)
-
-            # >> Get features for the *query* nodes (the ones we just added)
-            node_features_at_lod = policy_input[:, -num_nodes_at_lod:, :]
-            logits = self.policy_net(node_features_at_lod) # (B, num_nodes_at_lod, 1)
-            probs = torch.sigmoid(logits)
-            all_probs[lod_idx] = probs
-            
-            actions_hard = (probs > 0.5) # (B, num_nodes_at_lod, 1)
-            final_actions[lod_idx] = actions_hard # Store all decisions
-
-            # >> --- Update context for the *next* iteration ---
-            
-            # >> Find which nodes were selected *for each batch item*
-            new_active_node_indices_batch = [[] for _ in range(batch_size)]
-            max_active_at_lod = 0 # >> Max *new* active nodes in this batch
-            
-            for b_idx in range(batch_size):
-                # >> Find the *local* indices (0 to num_nodes_at_lod-1) that were activated
-                b_active_local_indices = torch.where(actions_hard[b_idx].squeeze(-1))[0]
-                
-                if b_active_local_indices.numel() > 0:
-                    # >> Convert local indices to *global* node indices
-                    b_active_global_indices = node_indices_at_lod[b_active_local_indices]
-                    new_active_node_indices_batch[b_idx] = b_active_global_indices.tolist()
-                    
-                    if len(new_active_node_indices_batch[b_idx]) > max_active_at_lod:
-                        max_active_at_lod = len(new_active_node_indices_batch[b_idx])
-            
-            # >> If any nodes were selected, add them to the context
-            if max_active_at_lod > 0:
-                # >> 1. Create padded embedding tensor and new mask
-                padded_embeddings = torch.zeros(batch_size, max_active_at_lod, self.width, device=device)
-                new_padding_mask = torch.ones(batch_size, max_active_at_lod, dtype=torch.bool, device=device)
-
-                # >> 2. Fill the tensor
-                for b_idx in range(batch_size):
-                    global_indices = new_active_node_indices_batch[b_idx]
-                    num_active = len(global_indices)
-                    
-                    if num_active > 0:
-                        global_indices_tensor = torch.tensor(global_indices, dtype=torch.long, device=device)
-                        
-                        # >> Gather embeddings from all_node_embeddings
-                        # >> all_node_embeddings[b_idx] is (N_total, D)
-                        embeddings = all_node_embeddings[b_idx].index_select(0, global_indices_tensor)
-                        
-                        padded_embeddings[b_idx, :num_active, :] = embeddings
-                        new_padding_mask[b_idx, :num_active] = False # >> Mark these as False (not padded)
-
-                # >> 3. Append to the context and mask for the *next* loop iteration
-                current_context_embeddings = torch.cat([current_context_embeddings, padded_embeddings], dim=1)
-                current_context_padding_mask = torch.cat([current_context_padding_mask, new_padding_mask], dim=1)
-
-            # >> The original code had a complex gather logic based on parents.
-            # >> This new logic replaces it. The "filtering" is now done by
-            # >> the transformer itself, as it only sees active nodes from previous steps.
-            # >> If you still need the parent-child gather, you would apply it
-            # >> *before* the `torch.where` to mask out logits for non-children.
-
-        # >> We must fix the original code's `final_actions` logic, as it was bugged.
-        # >> This version stores *all* decisions. Your original `final_actions`
-        # >> logic was trying to filter by parentage, which was complex and buggy.
-        # >> This autoregressive model is a cleaner way to achieve that,
-        # >> as decisions at lod_idx+1 are *conditioned* on active nodes from lod_idx.
         
-        return final_actions, all_probs
+        # Concatenate sequence and padding mask
+        x = torch.cat(sequence_parts, dim=1)
+        total_seq_len = x.shape[1]
+
+        attention_mask = torch.zeros(total_seq_len, total_seq_len, dtype=torch.bool, device=device)
+        pos_to_lod = torch.zeros(total_seq_len, dtype=torch.long, device=device)
+        pos_to_lod[:latent_seq_len] = -1
+        
+        # Guaranteed nodes
+        current_pos = latent_seq_len
+        for lod_idx in range(max(action_dict.keys()) + 1):
+            num_nodes = self.lod_node_counts[lod_idx]
+            pos_to_lod[current_pos:current_pos + num_nodes] = lod_idx
+            current_pos += num_nodes
+
+
+        i_indices = torch.arange(total_seq_len, device=device).view(-1, 1)
+        j_indices = torch.arange(total_seq_len, device=device).view(1, -1)
+        lod_i = pos_to_lod.view(-1, 1)
+        lod_j = pos_to_lod.view(1, -1)
+        attention_mask = (
+            (j_indices > i_indices) & 
+            (lod_i != -1) & 
+            (lod_j != -1) & 
+            (lod_j > lod_i)
+        )
+        
+        # Forward through transformer
+        x = self.policy_ln_pre(x)
+        x = x.permute(1, 0, 2)  # NLD -> LND
+
+        for layer in self.policy_transformer:
+            x = layer(x, key_padding_mask=padding_mask, attention_mask=attention_mask)
+        x = x.permute(1, 0, 2)  # LND -> NLD
+
+        x_node_logits = x[:, latent_seq_len:, :]
+        logits = self.policy_net(x_node_logits)
+
+        return logits[:, num_guaranteed_nodes:].squeeze(-1), padding_mask[:, latent_seq_len + num_guaranteed_nodes:]
+
+
+    

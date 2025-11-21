@@ -1,54 +1,38 @@
 experiment:
     project: "dynamic_tokenizer"
-    name: "policy_debug"
-    output_dir: "checkpoints/policy_debug"
+    name: "quadtok_sb256_vae_ts16_unifsample_300kgan_gd3"
+    output_dir: "checkpoints/quadtok_sb256_vae_ts16_unifsample_300kgan_gd3"
     max_train_examples: 685_800_000. #  Converge at 300_000
     save_every: 50_000
     eval_every: 50_000
     generate_every: 500
-    log_every: 1
+    log_every: 50
     log_grad_norm_every: 1_000
     resume: False
     explanation: #"S-256 size TiTok model No Legacy"
-    init_weight: "checkpoints/quadtok_sl256_vae_ts16_unifsample_300kgan_gd2/checkpoint-300000/ema_model/pytorch_model.bin"
+    init_weight: #"pretrained_weight/titok_sl256_vq8k/model.safetensors"
 
 model:
     type: "quadtok"
     grad_checkpointing: False
-    train_policy: True
-    guaranteed_depth: 3
+    train_policy: False
     vq_model:
       quantize_mode: vae
       # vit arch
       vit_enc_model_size: "small"
-      vit_dec_model_size: "small"
+      vit_dec_model_size: "base"
       vit_enc_patch_size: 16
       vit_dec_patch_size: 16
       decoder_token_size: 256
       token_size: 16
     selector:
       token_size: 16
-      num_patch_side_list: [1, 2, 4, 8, 16, 32]
-      patch_size_list: [16, 16, 16, 16, 16, 8]
-
-policy_model:
-    type: "quadtok_policy"
-    grad_checkpointing: False
-    train_policy: True
-    model_scale: "small"
-    guaranteed_depth: 2
-
-policy:
-    group_size: 4
-    discount_factor: 0.99
-    ppo_epochs: 8
-    clip_epsilon: 0.2
-    rule_search_num_workers: 2
-    reference_loss_weight: 0.5
+      num_patch_side_list: [1, 2, 4, 8, 16, 32] #[1, 2, 4, 8, 16, 32]
+      patch_size_list: [16, 16, 16, 16, 16, 8] #[16, 16, 16, 16, 16, 8]
 
 
 losses:
-    discriminator_start: 400_000
+    discriminator_start: 300_000
     quantizer_weight: 1.0
     discriminator_factor: 1.0
     discriminator_weight: 0.1
@@ -59,9 +43,6 @@ losses:
     lecam_regularization_weight: 0.001
     kl_weight: 1e-6
     logvar_init: 0.0
-    sparsity_weight: 1e-2
-    entropy_weight: 1e-2
-    recon_weight: 1.0
 
 dataset:
     type: "simple_image"
@@ -75,27 +56,26 @@ dataset:
         random_crop: True
         random_flip: True
         res_ratio_filtering: True
-
+        
 optimizer:
     name: adamw 
     params:
-        learning_rate: 5e-6
+        learning_rate: 1e-4
         discriminator_learning_rate: 1e-4
         beta1: 0.9
         beta2: 0.999
         weight_decay: 1e-4
 
-
 lr_scheduler:
     scheduler: "cosine"
     params:
         learning_rate: ${optimizer.params.learning_rate}
-        warmup_steps: 0
+        warmup_steps: 10_000
         end_lr: 1e-5
-max_grad_norm: True
+
 training:
     gradient_accumulation_steps: 1
-    per_gpu_batch_size: 16
+    per_gpu_batch_size: 64
     mixed_precision: "bf16"
     enable_tf32: True
     enable_wandb: True

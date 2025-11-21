@@ -145,7 +145,7 @@ def main():
 
     for current_epoch in range(first_epoch, num_train_epochs):
         accelerator.print(f"Epoch {current_epoch}/{num_train_epochs-1} started.")
-        global_step = train_one_epoch_stage2(config, logger, accelerator,
+        global_step = train_one_epoch_policy(config, logger, accelerator,
                             model, policy_model, policy_ema_model, loss_module,
                             optimizer, discriminator_optimizer,
                             lr_scheduler, discriminator_lr_scheduler,

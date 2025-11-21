@@ -3,7 +3,6 @@ import torch.nn as nn
 from typing import Optional, List
 from torch.nn import functional as F
 
-
 def batch_apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor):
     # x: (bs, seq_len, n_head, head_dim)
     # freqs_cis (bs, seq_len, head_dim // 2, 2)
@@ -52,10 +51,54 @@ def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
     
     return freqs_cis
 
+def precompute_freqs_cis_2d(
+    grid_size: int, n_elem: int, base: int = 10000, cls_token_num=120
+):
+    # split the dimension into half, one for x and one for y
+    half_dim = n_elem // 2
+    freqs = 1.0 / (
+        base ** (torch.arange(0, half_dim, 2)[: (half_dim // 2)].float() / half_dim)
+    )
+    t = torch.arange(grid_size, device=freqs.device)
+    freqs = torch.outer(t, freqs)  # (grid_size, head_dim // 2)
+    freqs_grid = torch.concat(
+        [
+            freqs[:, None, :].expand(-1, grid_size, -1),
+            freqs[None, :, :].expand(grid_size, -1, -1),
+        ],
+        dim=-1,
+    )  # (grid_size, grid_size, head_dim // 2)
+    cache_grid = torch.stack(
+        [torch.cos(freqs_grid), torch.sin(freqs_grid)], dim=-1
+    )  # (grid_size, grid_size, head_dim // 2, 2)
+    cache = cache_grid.flatten(0, 1)
+    cond_cache = torch.cat(
+        [torch.zeros(cls_token_num, n_elem // 2, 2), cache]
+    )  # (cls_token_num+grid_size**2, head_dim // 2, 2)
+    return cond_cache
+
 def find_multiple(n: int, k: int):
     if n % k == 0:
         return n
     return n + k - (n % k)
+
+
+class KVCache(nn.Module):
+    def __init__(self, max_batch_size, max_seq_length, n_head, head_dim, dtype):
+        super().__init__()
+        cache_shape = (max_batch_size, n_head, max_seq_length, head_dim)
+        self.register_buffer("k_cache", torch.zeros(cache_shape, dtype=dtype))
+        self.register_buffer("v_cache", torch.zeros(cache_shape, dtype=dtype))
+
+    def update(self, input_pos, k_val, v_val):
+        # input_pos: [S], k_val: [B, H, S, D]
+        assert input_pos.shape[0] == k_val.shape[2]
+        k_out = self.k_cache
+        v_out = self.v_cache
+        k_out[:, :, input_pos] = k_val
+        v_out[:, :, input_pos] = v_val
+
+        return k_out, v_out
 
 class FeedForward(nn.Module):
     def __init__(
@@ -128,7 +171,7 @@ class Attention(nn.Module):
         total_kv_dim = (self.n_head + 2 * self.n_kv_head) * self.head_dim
 
         # key, query, value projections for all heads, but in a batch
-        self.wqkv = nn.Linear(dim, total_kv_dim, bias=False)
+        self.wqkv = nn.Linear(dim, total_kv_dim, bias=True)
         self.wo = nn.Linear(dim, dim, bias=False)
         self.kv_cache = None
 
@@ -160,8 +203,12 @@ class Attention(nn.Module):
         xv = xv.view(bsz, seqlen, self.n_kv_head, self.head_dim)
 
         # this part is modified from LLaMAGen
-        xq = batch_apply_rotary_emb(xq, freqs_cis)
-        xk = batch_apply_rotary_emb(xk, freqs_cis)
+        if freqs_cis is not None:
+            xq = batch_apply_rotary_emb(xq, freqs_cis)
+            xk = batch_apply_rotary_emb(xk, freqs_cis)
+        else:
+            xq = xq
+            xk = xk
 
         xq, xk, xv = map(lambda x: x.transpose(1, 2), (xq, xk, xv))
 
@@ -189,7 +236,7 @@ class Attention(nn.Module):
             attn_mask=mask,
             is_causal=(
                 True if mask is None else False
-            ),  # is_causal=False is for KV cache
+            ),  # is_causal=False is for KV cache or explicit mask
             dropout_p=self.attn_dropout_p if self.training else 0,
         )
 
@@ -201,7 +248,7 @@ class Attention(nn.Module):
 
 """ Cloned from LLaMAGen: only the attention uses our customized version
 """
-class RopeTransformerBlock(nn.Module):
+class TransformerBlock(nn.Module):
     def __init__(
         self,
         dim=4096,
@@ -230,7 +277,7 @@ class RopeTransformerBlock(nn.Module):
         self,
         x: torch.Tensor,
         freqs_cis: torch.Tensor,
-        start_pos: int,
+        start_pos: int = None,
         mask: Optional[torch.Tensor] = None,
     ):
         h = x + self.drop_path(

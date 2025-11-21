@@ -71,7 +71,9 @@ def sample_fn(generator,
     tokenizer.eval()
     if labels is None:
         # goldfish, chicken, tiger, cat, hourglass, ship, dog, race car, airliner, teddy bear, random
-        labels = [1, 7, 282, 604, 724, 179, 751, 404, 850, torch.randint(0, 999, size=(1,))]
+        # labels = [1, 7, 282, 604, 724, 179, 751, 404, 850, torch.randint(0, 999, size=(1,))]
+        # labels = [207, 250, torch.randint(0, 999, size=(1,)), torch.randint(0, 999, size=(1,))]
+        labels = [207, torch.randint(0, 999, size=(1,))]
 
     if not isinstance(labels, torch.Tensor):
         labels = torch.LongTensor(labels).to(device)
@@ -84,10 +86,15 @@ def sample_fn(generator,
         randomize_temperature=randomize_temperature,
         softmax_temperature_annealing=softmax_temperature_annealing,
         num_sample_steps=num_sample_steps)
+
+    if isinstance(generated_tokens, tuple):
+        generated_tokens, tree = generated_tokens
+        generated_image = tokenizer.decoder._forward_optimize(generated_tokens, tree)
+    else:
+        generated_image = tokenizer.decode_tokens(
+            generated_tokens.view(generated_tokens.shape[0], -1)
+        )
     
-    generated_image = tokenizer.decode_tokens(
-        generated_tokens.view(generated_tokens.shape[0], -1)
-    )
     if return_tensor:
         return generated_image
 

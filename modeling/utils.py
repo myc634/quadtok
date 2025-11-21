@@ -55,55 +55,6 @@ def build_quadtree(patches_per_side_list):
         
     return root_node
 
-# def _build_final_random_recursive(node, current_depth, guaranteed_depth, max_possible_depth, patches_per_side_list):
-#     if current_depth >= max_possible_depth:
-#         return
-
-#     expand = False
-#     if current_depth < guaranteed_depth:
-#         expand = True
-#     else:
-#         prob_to_expand = (max_possible_depth - current_depth) / (max_possible_depth - current_depth + 1.0)
-        
-#         if random.random() < prob_to_expand:
-#             expand = True
-#     if expand:
-#         parent_lod_idx = current_depth
-#         child_lod_idx = current_depth + 1
-
-#         parent_patches_per_side = patches_per_side_list[parent_lod_idx]
-#         child_patches_per_side = patches_per_side_list[child_lod_idx]
-
-#         parent_row, parent_col = divmod(node.patch_index, parent_patches_per_side)
-#         child_start_row, child_start_col = parent_row * 2, parent_col * 2
-
-#         top_left_idx = child_start_row * child_patches_per_side + child_start_col
-#         child_indices = [top_left_idx, top_left_idx + 1, top_left_idx + child_patches_per_side, top_left_idx + child_patches_per_side + 1]
-
-#         for child_index in child_indices:
-#             child_node = QuadTreeNode(lod_level=child_lod_idx, patch_index=child_index)
-#             node.children.append(child_node)
-
-#             _build_final_random_recursive(child_node, child_lod_idx, guaranteed_depth, max_possible_depth, patches_per_side_list)
-
-# def build_random_quadtree(patches_per_side_list, guaranteed_depth=0):
-#     local_patches_per_side = sorted(patches_per_side_list)
-#     max_possible_depth = len(patches_per_side_list) - 1
-#     if guaranteed_depth > max_possible_depth:
-#         guaranteed_depth = max_possible_depth
-
-#     root_node = QuadTreeNode(lod_level=0, patch_index=0)
-
-#     _build_final_random_recursive(
-#         root_node, 
-#         0, # current_depth
-#         guaranteed_depth,
-#         max_possible_depth,
-#         local_patches_per_side
-#     )
-        
-#     return root_node
-
 
 def _create_and_assign_children(node, patches_per_side_list):
 

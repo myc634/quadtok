@@ -1,1 +1,1 @@
-from .webdataset_reader import SimpleImageDataset, SimpleVideoDataset
+from .webdataset_reader import SimpleImageDataset, PretokenizedDataset

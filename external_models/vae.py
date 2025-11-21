@@ -478,10 +478,25 @@ class AutoencoderKL(nn.Module):
         posterior = DiagonalGaussianDistribution(moments)
         return posterior
 
+    def encode_generation(self, x):
+        x = (x * 2) - 1 # normaliz to [-1, 1]
+        h = self.encoder(x)
+        moments = self.quant_conv(h)
+        if not self.use_variational:
+            moments = torch.cat((moments, torch.ones_like(moments)), 1)
+        posterior = DiagonalGaussianDistribution(moments)
+        return posterior
+
     def decode(self, z):
         z = self.post_quant_conv(z)
         dec = self.decoder(z)
         return dec
+
+    def decode_tokens(self, z): # func for training visualization
+        z = z / 0.2325
+        z = self.post_quant_conv(z)
+        dec = self.decoder(z)
+        return (dec + 1) / 2
 
     def forward(self, inputs, disable=True, train=True, optimizer_idx=0):
         if train:

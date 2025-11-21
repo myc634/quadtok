@@ -1,7 +1,7 @@
 experiment:
     project: "dynamic_tokenizer"
-    name: "quadtok_sl256_vae_ts16_unifsample_300kgan"
-    output_dir: "checkpoints/quadtok_sl256_vae_ts16_unifsample_300kgan"
+    name: "quadtok_sl256_vae_ts16_unifsample_300kgan_gd3_0.7-0.7"
+    output_dir: "checkpoints/debug" #"checkpoints/quadtok_sl256_vae_ts16_unifsample_300kgan_gd3_0.7-0.7"
     max_train_examples: 685_800_000. #  Converge at 300_000
     save_every: 50_000
     eval_every: 50_000
@@ -27,8 +27,8 @@ model:
       token_size: 16
     selector:
       token_size: 16
-      num_patch_side_list: [1, 2, 4, 8, 16, 32]
-      patch_size_list: [16, 16, 16, 16, 16, 8]
+      num_patch_side_list: [1, 2, 4, 8, 16, 32] #[1, 2, 4, 8, 16, 32]
+      patch_size_list: [16, 16, 16, 16, 16, 8] #[16, 16, 16, 16, 16, 8]
 
 
 losses:

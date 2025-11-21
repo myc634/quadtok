@@ -1,17 +1,17 @@
 experiment:
     project: "dynamic_tokenizer"
-    name: "quadtok_ss256_vq_ts8_vaeinit"
-    output_dir: "checkpoints/quadtok_ss256_vq_ts8_vaeinit"
+    name: "quadtok_sl256_vq_ts8_unifsample_300kgan_gd3_0.8-0.7"
+    output_dir: "checkpoints/quadtok_sl256_vq_ts8_unifsample_300kgan_gd3_0.8-0.7"
     max_train_examples: 685_800_000
     save_every: 50_000
     eval_every: 50_000
     generate_every: 500
     log_every: 50
     log_grad_norm_every: 1_000
-    resume: False
+    resume: True
     explanation: #"S-256 size TiTok model No Legacy"
-    init_weight: "checkpoints/quadtok_sl256_vae_ts8/checkpoint-200000/ema_model/pytorch_model.bin"
-    init_from_vae: True
+    init_weight: #"checkpoints/quadtok_sl256_vae_ts8/checkpoint-200000/ema_model/pytorch_model.bin"
+
 
 model:
     type: "quadtok"
@@ -37,7 +37,7 @@ model:
 
 
 losses:
-    discriminator_start: 200_000
+    discriminator_start: 300_000
     quantizer_weight: 1.0
     discriminator_factor: 1.0
     discriminator_weight: 0.1
@@ -78,7 +78,7 @@ lr_scheduler:
 
 training:
     gradient_accumulation_steps: 1
-    per_gpu_batch_size: 64
+    per_gpu_batch_size: 128
     mixed_precision: "bf16"
     enable_tf32: True
     enable_wandb: True

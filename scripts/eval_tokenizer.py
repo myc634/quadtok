@@ -188,10 +188,15 @@ def main(args):
 
         # step_tree_structure = copy.deepcopy(tree_structure)
         latent_feats = accelerator.unwrap_model(model).encode(image)
-        tree_structure = build_probabilistic_quadtree(model.num_patch_side_list, guaranteed_depth=3, expansion_probs=[0.7, 0.7])
+        tree_structure = build_probabilistic_quadtree(model.num_patch_side_list, guaranteed_depth=3, expansion_probs=[0.7, 0.4])
+        # tree_structure = build_quadtree(model.num_patch_side_list)
         z = accelerator.unwrap_model(model).selector(latent_feats, tree_structure)
         token_num += z.shape[-1]
-        z_quantized = accelerator.unwrap_model(model).quantize(z).sample()
+        if model.quantize_mode == "vae":
+            z_quantized = accelerator.unwrap_model(model).quantize(z).sample()
+        elif model.quantize_mode == "vq":
+            z_quantized, model_dict = accelerator.unwrap_model(model).quantize(z)
+        
         reconstructed_images = accelerator.unwrap_model(model).decode(z_quantized.permute(0, 3, 2, 1).squeeze(2).contiguous(), tree_structure)
         # reconstructed_images, model_dict = accelerator.unwrap_model(model)(image)
         reconstructed_images = torch.clamp(reconstructed_images, 0.0, 1.0)
@@ -203,8 +208,8 @@ def main(args):
             evaluator.update(image, reconstructed_images, None)
         else:
             evaluator.update(image, reconstructed_images, model_dict["min_encoding_indices"])
-        if count == 1000:
-            break
+        # if count == 1000:
+        #     break
     print(token_num / count)
     print(evaluator.result())
 

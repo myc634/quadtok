@@ -10,7 +10,7 @@ experiment:
     log_grad_norm_every: 1_000
     resume: False
     explanation: #"S-256 size TiTok model No Legacy"
-    init_weight: "checkpoints/quadtok_sl256_vae_ts32_unifsample_300kgan/checkpoint-200000/ema_model/pytorch_model.bin"
+    init_weight: "checkpoints/quadtok_sl256_vae_ts16_unifsample_300kgan_gd3_0.7-0.7/checkpoint-350000/ema_model/pytorch_model.bin"
 
 model:
     type: "quadtok"
@@ -25,9 +25,9 @@ model:
       vit_enc_patch_size: 16
       vit_dec_patch_size: 16
       decoder_token_size: 256
-      token_size: 32
+      token_size: 16
     selector:
-      token_size: 32
+      token_size: 16
       num_patch_side_list: [1, 2, 4, 8, 16, 32]
       patch_size_list: [16, 16, 16, 16, 16, 8]
       gumbel_start_temp: 2.0
@@ -43,7 +43,7 @@ losses:
     perceptual_loss: "lpips-convnext_s-1.0-0.1"
     perceptual_weight: 1.1
     reconstruction_loss: "l2"
-    reconstruction_weight: 1.0
+    reconstruction_weight: 10.0
     lecam_regularization_weight: 0.001
     kl_weight: 1e-6
     logvar_init: 0.0
@@ -78,7 +78,7 @@ lr_scheduler:
 
 training:
     gradient_accumulation_steps: 1
-    per_gpu_batch_size: 16
+    per_gpu_batch_size: 1
     mixed_precision: "bf16"
     enable_tf32: True
     enable_wandb: True

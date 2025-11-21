@@ -1,0 +1,93 @@
+experiment:
+    project: "dynamic_tokenizer_generation"
+    name: "mar_causal"
+    # output_dir: "checkpoints/generator/mar_causal"
+    output_dir: "checkpoints/generator/debug"
+    max_train_examples: 1_281_167
+    save_every: 50_000
+    eval_every: 50_000
+    generate_every: 500
+    log_every: 50
+    log_grad_norm_every: 1_000
+    resume: False
+    
+
+tokenizer:
+    type: "mar-vae"
+    ch_mult: [1, 1, 2, 2, 4]
+    vae_embed_dim: 16
+    vae_stride: 16
+    ckpt_dir: "pretrained_weight/vae/kl16.ckpt"
+
+
+model:
+    generator_type: "mar-causal"
+    model_size: "base"
+    grad_checkpointing: True
+    patch_size: 1
+
+    class_num: 1000
+    label_drop_prob: 0.1
+
+    mask_ratio_min: 0.7
+    buffer_size: 1
+
+    proj_dropout: 0.1
+    attn_dropout: 0.1
+
+    diffusion_batch_mul: 4
+
+    # generation params
+    generator:
+        guidance_scale: 2.9
+        guidance_decay: "linear"
+        randomize_temperature: 1.0
+        num_iter: 256
+    
+
+losses:
+    model_embed_dim: 768
+    diffloss_d: 8
+    diffloss_w: 1280
+
+
+dataset:
+    type: "simple_image"
+    params:
+        train_shards_path_or_url: "/mnt/shared-storage-user/idc2-shared/dataset/preprocess/imagenet/imagenet-train-{000000..000070}.tar"
+        eval_shards_path_or_url: "/mnt/shared-storage-user/idc2-shared/dataset/preprocess/imagenet/imagenet-val-{000000..000049}.tar"
+        num_workers_per_gpu: 12
+    preprocessing:
+        resize_shorter_edge: 256
+        crop_size: 256
+        random_crop: True
+        random_flip: True
+        res_ratio_filtering: True
+
+optimizer:
+    name: adamw 
+    params:
+        learning_rate: 1e-4
+        beta1: 0.9
+        beta2: 0.96
+        weight_decay: 0.03
+
+
+lr_scheduler:
+    scheduler: "cosine"
+    params:
+        learning_rate: ${optimizer.params.learning_rate}
+        warmup_steps: 10_000
+        end_lr: 1e-5
+
+
+training:
+    gradient_accumulation_steps: 1
+    per_gpu_batch_size: 512 # 32 GPU, total batch size 2048
+    mixed_precision: "bf16"
+    enable_tf32: True
+    enable_wandb: True
+    use_ema: True
+    seed: 42
+    max_train_steps: 1000_000
+    max_grad_norm: 1.0

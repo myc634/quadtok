@@ -31,7 +31,7 @@ from omegaconf import OmegaConf
 from utils.logger import setup_logger
 
 from utils.train_utils import (
-    get_config, create_model_and_loss_module, get_titok_tokenizer,
+    get_config, create_model_and_loss_module, create_generater_tokenizer,
     create_optimizer, create_lr_scheduler, create_dataloader,
     auto_resume, save_checkpoint, 
     train_one_epoch_generator)
@@ -82,8 +82,7 @@ def main():
     if config.training.seed is not None:
         set_seed(config.training.seed, device_specific=True)
 
-    tokenizer = get_titok_tokenizer(config)
-    tokenizer.to(accelerator.device)
+    tokenizer = create_generater_tokenizer(config, logger, accelerator)
 
     model, ema_model, loss_module = create_model_and_loss_module(
         config, logger, accelerator, model_type=config.model.generator_type)
@@ -93,8 +92,12 @@ def main():
 
     lr_scheduler, _ = create_lr_scheduler(
         config, logger, accelerator, optimizer, discriminator_optimizer=None)
-
-    train_dataloader, _ = create_dataloader(config, logger, accelerator)
+    if config.dataset.get("type", "simple_image") == "simple_image":
+        train_dataloader, _ = create_dataloader(config, logger, accelerator)
+    elif config.dataset.get("type", "simple_image") == "pre_tokenized":
+        train_dataloader = create_dataloader(config, logger, accelerator)
+    else:
+        NotImplementedError
 
     # Prepare everything with accelerator.
     logger.info("Preparing model, optimizer and dataloaders")
@@ -133,7 +136,7 @@ def main():
         strict=False)
 
     for current_epoch in range(first_epoch, num_train_epochs):
-        accelerator.print(f"Epoch {current_epoch}/{num_train_epochs-1} started.")
+        logger.info(f"Epoch {current_epoch}/{num_train_epochs-1} started.")
         global_step = train_one_epoch_generator(config, logger, accelerator,
                             model, ema_model, loss_module,
                             optimizer,
