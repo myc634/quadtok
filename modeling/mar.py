@@ -2,6 +2,8 @@ from functools import partial
 from typing import Any
 
 import numpy as np
+import json
+import copy
 from tqdm import tqdm
 import scipy.stats as stats
 import math
@@ -11,11 +13,12 @@ import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 from modeling.modules.base_model import BaseModel
 from modeling.modules.attention import TransformerBlock, precompute_freqs_cis, batch_apply_rotary_emb, precompute_freqs_cis_2d, find_multiple, KVCache
-
+from modeling.modules.blocks import BoxNerfEmbedder
+from modeling.generate_utils import sample
 from timm.models.vision_transformer import Block
 
 from modeling.modules.losses import DiffLoss
-from modeling.utils import build_quadtree
+from modeling.utils import build_quadtree, build_probabilistic_quadtree, tree_to_decision_nodes_dict, QuadTreeNode, _get_parent_patch_index
 from collections import defaultdict
 
 def interleave_tokens(seq1, seq2):
@@ -844,10 +847,10 @@ class QuadtreeMAR(BaseModel):
         self.num_lod = len(self.num_patch_side_list)
         
         # Create learnable embeddings for each LOD level and patch index
-        self.token_indices_embedding_dict = nn.ModuleDict()
-        for lod_idx, num_patches in enumerate(self.num_patch_side_list):
-            total_patches = num_patches ** 2
-            self.token_indices_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.embed_dim)
+        # self.token_indices_embedding_dict = nn.ModuleDict()
+        # for lod_idx, num_patches in enumerate(self.num_patch_side_list):
+        #     total_patches = num_patches ** 2
+        #     self.token_indices_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.embed_dim)
         
         # Build full quadtree structure for node mapping
         self.full_tree_root = build_quadtree(self.num_patch_side_list)
@@ -875,7 +878,8 @@ class QuadtreeMAR(BaseModel):
         freqs_cis = precompute_freqs_cis(self.head_dim, max_total_seq_len)
         self.register_buffer("freqs_cis", freqs_cis)
 
-        self.diffusion_pos_embed_learned = nn.Parameter(torch.zeros(1, self.seq_len, self.embed_dim))
+        # self.diffusion_pos_embed_learned = nn.Parameter(torch.zeros(1, 512, self.embed_dim))
+        self.diffusion_pos_embed_learned = nn.Parameter(torch.zeros(1, 378, self.embed_dim))
 
         self.initialize_weights()
 
@@ -906,15 +910,66 @@ class QuadtreeMAR(BaseModel):
             
         return ordered_nodes
 
+    def _tree_structure_to_status(self, tree_structure, device):
+        """
+        Convert a tree_structure (quadtree root) to status list and length.
+        Reference: pretokenize_quadtree.py lines 390-422
+        !! Fake status is used: as long as the node in tree_structure, the status should >= 0
+        
+        Args:
+            tree_structure: Quadtree root node
+            device: Device to create tensors on
+            
+        Returns:
+            status: Tensor of shape (1, num_total_nodes) with values:
+                - 1: Node is present in the tree
+                - 0: Node is not present but its parent is present (potential but not chosen)
+                - -1: Node is not present and its parent is also not present
+            length: Scalar tensor with the number of active nodes (status >= 0)
+        """
+        # Extract all nodes from tree_structure, organized by LOD level
+        decision_nodes = defaultdict(list)
+        queue = [tree_structure]
+        while queue:
+            node = queue.pop(0)
+            if node.lod_level < self.num_lod:
+                decision_nodes[node.lod_level].append(node)
+            for child in node.children:
+                queue.append(child)
+        
+        # Build present_nodes_set
+        present_nodes_set = set()
+        for lod, nodes in decision_nodes.items():
+            for node in nodes:
+                present_nodes_set.add((node.lod_level, node.patch_index))
+        
+        # Initialize status list
+        num_total_nodes = len(self.ordered_full_nodes)
+        status_list = [-1] * num_total_nodes
+        
+        # Mark present nodes with 1
+        for i, node in enumerate(self.ordered_full_nodes):
+            if (node.lod_level, node.patch_index) in present_nodes_set:
+                status_list[i] = 1
+
+        # Count active nodes (status >= 0)
+        length = sum(1 for s in status_list if s >= 0)
+        
+        # Convert to tensor
+        status_tensor = torch.tensor([status_list], dtype=torch.long, device=device)
+        length_tensor = torch.tensor([length], dtype=torch.long, device=device)
+        
+        return status_tensor, length_tensor
+
     def initialize_weights(self):
         # parameters
         torch.nn.init.normal_(self.class_emb.weight, std=.02)
         torch.nn.init.normal_(self.fake_latent, std=.02)
         torch.nn.init.normal_(self.diffusion_pos_embed_learned, std=.02)
         
-        # Initialize quadtree position embeddings
-        for lod_idx_str, embedding_layer in self.token_indices_embedding_dict.items():
-            torch.nn.init.normal_(embedding_layer.weight, std=.02)
+        # # Initialize quadtree position embeddings
+        # for lod_idx_str, embedding_layer in self.token_indices_embedding_dict.items():
+        #     torch.nn.init.normal_(embedding_layer.weight, std=.02)
 
         # initialize nn.Linear and nn.LayerNorm
         self.apply(self._init_weights)
@@ -1127,10 +1182,91 @@ class QuadtreeMAR(BaseModel):
 
         target = target[(~padding_mask)].repeat(self.diffusion_batch_mul, 1)
         z = z[(~padding_mask)].repeat(self.diffusion_batch_mul, 1)
-        loss, loss_dict = self.diffloss(z=z, target=target, mask=None)
+        loss, loss_dict = self.diffloss(z=z, target=target, pos=None, mask=None)
         return loss, loss_dict
 
-    def forward(self, input_tokens, target_tokens, tree_dict, labels):
+    # def forward(self, input_tokens, target_tokens, tree_dict, labels):
+    #     """
+    #     Forward pass for QuadtreeMAR.
+    #     Args:
+    #         input_tokens: Input tokens (z_quantized) of shape (batch_size, max_seq_len - 1, token_embed_dim)
+    #            Padded positions have value -1.0
+    #         target_tokens: Target tokens (z_quantized) of shape (batch_size, max_seq_len, token_embed_dim)
+    #            Padded positions have value -1.0
+    #         tree_dict: Dictionary containing:
+    #             - 'status': Tensor of shape (batch_size, num_total_nodes)
+    #             - 'lengths': Tensor of shape (batch_size,) with actual sequence lengths
+    #             - 'tree': List of tree structures (one per batch item)
+    #         labels: Class labels of shape (batch_size,)
+    #     """
+    #     # Extract tree information
+    #     status = tree_dict['status']
+    #     lengths = tree_dict['lengths']
+        
+    #     # class embed
+    #     class_embedding = self.class_emb(labels)
+
+    #     bs, max_seq_len, in_dim = target_tokens.shape
+    #     device = target_tokens.device
+        
+    #     # Create padding mask: True for padding positions, False for valid positions
+    #     # Shape: (batch_size, max_seq_len)
+    #     padding_mask = torch.arange(max_seq_len, device=device).unsqueeze(0) >= lengths.unsqueeze(1)
+        
+    #     # Get position instruction tokens based on status and ordered_full_nodes
+    #     # Padding positions will have zero embeddings
+    #     position_instruction_tokens = self.get_position_instruction_tokens_from_status(
+    #         status, lengths
+    #     )
+        
+    #     # Random class label dropout during training
+    #     if self.training:
+    #         drop_latent_mask = torch.rand(bs) < self.label_drop_prob
+    #         drop_latent_mask = drop_latent_mask.unsqueeze(-1).cuda().to(target_tokens.dtype)
+    #         class_embedding = drop_latent_mask * self.fake_latent + (1 - drop_latent_mask) * class_embedding
+        
+    #     cond_embeddings = class_embedding.unsqueeze(1).repeat(1, self.buffer_size, 1)
+        
+    #     # Project input tokens
+    #     token_embeddings = self.z_proj_ln(self.z_proj(input_tokens))
+
+    #     # parent_token_embeddings = self.z_proj_ln(self.z_proj(parent_tokens))
+    #     # Interleave position tokens and token embeddings
+    #     z = torch.cat(
+    #         (cond_embeddings, position_instruction_tokens[:, 1:] + token_embeddings),
+    #         dim=1
+    #     )
+
+    #     freqs_cis = self.freqs_cis[:max_seq_len]
+    #     freqs_cis = freqs_cis.unsqueeze(0).repeat(bs, 1, 1, 1)
+    
+    #     if self.grad_checkpointing and not torch.jit.is_scripting():
+    #         for block in self.blocks:
+    #             z = checkpoint(block, z, freqs_cis, None, None, use_reentrant=False)
+    #     else:
+    #         for block in self.blocks:
+    #             z = block(z, freqs_cis, start_pos=None, mask=None)
+
+
+    #      # add position aware for diffusion head
+
+    #     z = self.out_norm(z)
+
+    #     # z = z + position_instruction_tokens
+
+    #     # Compute reconstruction loss only on valid (non-padding) positions
+    #     diff_loss, loss_dict = self.forward_loss(z=z, target=target_tokens, padding_mask=padding_mask)
+        
+    #     # Combine losses
+    #     total_loss = diff_loss #+ expand_loss * self.config.losses.expand_loss_weight
+    #     # loss_dict['expand_loss'] = expand_loss.mean().detach()
+    #     # loss_dict['expand_acc'] = correct.mean().detach()
+    #     loss_dict['total_loss'] = total_loss.mean().detach()
+    #     loss_dict['z'] = z.detach() 
+        
+    #     return total_loss, loss_dict
+
+    def forward(self, input_tokens, target_tokens, lod_idx, labels):
         """
         Forward pass for QuadtreeMAR.
         Args:
@@ -1144,25 +1280,48 @@ class QuadtreeMAR(BaseModel):
                 - 'tree': List of tree structures (one per batch item)
             labels: Class labels of shape (batch_size,)
         """
-        # Extract tree information
-        status = tree_dict['status']
-        lengths = tree_dict['lengths']
         
         # class embed
         class_embedding = self.class_emb(labels)
 
         bs, max_seq_len, in_dim = target_tokens.shape
         device = target_tokens.device
+
+                # Build LOD-based block causal mask
+        # lod_idx shape: (seq_len,) - each element represents the LOD level of that token position
+        token_seq_len = input_tokens.shape[1]  # max_seq_len - 1
+
+        lod_idx_batch = lod_idx.unsqueeze(0).repeat(bs, 1)  # (bs, token_seq_len)
+
+        lod_idx_expanded_i = lod_idx_batch.unsqueeze(2)  # (bs, token_seq_len, 1)
+        lod_idx_expanded_j = lod_idx_batch.unsqueeze(1)  # (bs, 1, token_seq_len)
         
-        # Create padding mask: True for padding positions, False for valid positions
-        # Shape: (batch_size, max_seq_len)
-        padding_mask = torch.arange(max_seq_len, device=device).unsqueeze(0) >= lengths.unsqueeze(1)
+        # Can attend if lod_idx[j] <= lod_idx[i]
+        lod_mask = (lod_idx_expanded_j <= lod_idx_expanded_i)  # (bs, token_seq_len, token_seq_len)
         
-        # Get position instruction tokens based on status and ordered_full_nodes
-        # Padding positions will have zero embeddings
-        position_instruction_tokens = self.get_position_instruction_tokens_from_status(
-            status, lengths
+        # Convert to attention mask format: 0 for can attend, -inf for cannot attend
+        # For scaled_dot_product_attention, we use 0 for visible and -inf for masked
+        lod_attention_mask = torch.where(
+            lod_mask,
+            torch.zeros_like(lod_mask, dtype=torch.float32),
+            torch.full_like(lod_mask, float('-inf'), dtype=torch.float32)
         )
+        
+        # Add buffer positions: buffer tokens can see all tokens, all tokens can see buffer
+        # Total sequence length = buffer_size + token_seq_len
+        total_seq_len = self.buffer_size + token_seq_len
+        full_attention_mask = torch.zeros(bs, total_seq_len, total_seq_len, device=device, dtype=torch.float32)
+        
+        # Buffer positions (0 to buffer_size-1): can see everything
+        full_attention_mask[:, :self.buffer_size, :] = 0.0
+        
+        # All positions can see buffer
+        full_attention_mask[:, :, :self.buffer_size] = 0.0
+        
+        # Token positions (buffer_size to total_seq_len-1): use LOD mask
+        full_attention_mask[:, self.buffer_size:, self.buffer_size:] = lod_attention_mask
+
+        full_attention_mask = full_attention_mask.unsqueeze(1).repeat(1, self.num_heads, 1, 1)
         
         # Random class label dropout during training
         if self.training:
@@ -1175,13 +1334,14 @@ class QuadtreeMAR(BaseModel):
         # Project input tokens
         token_embeddings = self.z_proj_ln(self.z_proj(input_tokens))
 
+        # parent_token_embeddings = self.z_proj_ln(self.z_proj(parent_tokens))
         # Interleave position tokens and token embeddings
         z = torch.cat(
-            (cond_embeddings, position_instruction_tokens[:, 1:] + token_embeddings),
+            (cond_embeddings, token_embeddings),
             dim=1
         )
 
-        freqs_cis = self.freqs_cis[:max_seq_len]
+        freqs_cis = self.freqs_cis[:total_seq_len]
         freqs_cis = freqs_cis.unsqueeze(0).repeat(bs, 1, 1, 1)
     
         if self.grad_checkpointing and not torch.jit.is_scripting():
@@ -1195,20 +1355,10 @@ class QuadtreeMAR(BaseModel):
          # add position aware for diffusion head
 
         z = self.out_norm(z)
-        
-        z = z + position_instruction_tokens + self.diffusion_pos_embed_learned[:, :z.shape[1]]
-        # expand_logits = self.expand_pred_head(z).squeeze(-1)  # (bs, max_seq_len)
-        
-        # gt_expand_labels, gt_expand_mask = self.build_expand_labels_from_status(
-        #     status, lengths, max_seq_len, device
-        # )
-
-        # valid_mask = gt_expand_mask & (~padding_mask)  # Valid and not padding
-
-        
+        z = z + self.diffusion_pos_embed_learned[:, :total_seq_len]
 
         # Compute reconstruction loss only on valid (non-padding) positions
-        diff_loss, loss_dict = self.forward_loss(z=z, target=target_tokens, padding_mask=padding_mask)
+        diff_loss, loss_dict = self.forward_loss(z=z, target=target_tokens, padding_mask=torch.zeros(bs, total_seq_len, dtype=torch.bool))
         
         # Combine losses
         total_loss = diff_loss #+ expand_loss * self.config.losses.expand_loss_weight
@@ -1265,218 +1415,581 @@ class QuadtreeMAR(BaseModel):
         bsz = condition.shape[0]
         device = condition.device
         
-        # Build parent-child relationship mapping (shared across all samples)
-        num_nodes = len(self.ordered_full_nodes)
-        child_to_parent = {}
-        for parent_idx, parent_node in enumerate(self.ordered_full_nodes):
-            for child in parent_node.children:
-                child_key = (child.lod_level, child.patch_index)
-                if child_key in self.node_to_idx_map:
-                    child_idx = self.node_to_idx_map[child_key]
-                    child_to_parent[child_idx] = parent_idx
-        
-        # Find root node index (lod_level=0, patch_index=0)
-        root_node_idx = None
-        for node_idx, node in enumerate(self.ordered_full_nodes):
-            if node.lod_level == 0 and node.patch_index == 0:
-                root_node_idx = node_idx
-                break
-        assert root_node_idx is not None, "Root node not found"
-        
-        # Initialize result storage
-        result_tokens_list = []  # List of tensors, one per sample
-        tree_list = []
-        
-        # Generate for each sample independently
-        for b in range(bsz):
-            # Get class label for this sample
-            sample_class_label = condition[b:b+1]
-            
-            # Class embedding
-            class_embedding = self.class_emb(sample_class_label)
-            cond_embeddings = class_embedding.unsqueeze(1).repeat(1, self.buffer_size, 1)
-            
-            # Prepare for CFG
-            if guidance_scale != 1.0:
-                cond_embeddings_cfg = torch.cat([
-                    cond_embeddings, 
-                    self.fake_latent.unsqueeze(0).repeat(1, self.buffer_size, 1)
-                ], dim=0)
-                effective_bsz = 2
-            else:
-                cond_embeddings_cfg = cond_embeddings
-                effective_bsz = 1
-            
-            # Initialize result storage for this sample
-            sample_tokens = torch.zeros(self.seq_len, self.token_embed_dim, device=device)
-            node_tokens = {}  # Map node_idx -> token feature
-            
-            # Initialize status tensor for this sample
-            sample_status = torch.full((num_nodes,), -1, dtype=torch.long, device=device)
-            
-            # Mark guaranteed nodes (lod <= guaranteed_depth - 1) as "will expand"
-            for node_idx, node in enumerate(self.ordered_full_nodes):
-                if node.lod_level <= self.guaranteed_depth - 1:
-                    sample_status[node_idx] = 1
-            
-            # Setup KV cache for this sample
-            # Sequence length: buffer_size + (max_seq_len - 1) for input sequence
-            max_seq_len = self.buffer_size + (self.seq_len - 1)
-            with torch.device(device):
-                self.setup_caches(max_batch_size=effective_bsz, max_seq_length=max_seq_len, 
-                                dtype=cond_embeddings_cfg.dtype)
-            
-            # Initialize: pass class embedding through model to initialize KV cache
-            input_pos_init = torch.arange(0, self.buffer_size, device=device)
-            freqs_cis_init = self.freqs_cis[:self.buffer_size].unsqueeze(0).repeat(effective_bsz, 1, 1, 1)
-            z_class = self.forward_inference(cond_embeddings_cfg, freqs_cis_init, input_pos_init)
-            
-            z_root_output = z_class[:, -1]  # (effective_bsz, embed_dim) - use last class token position
-            
-            # Sample root token
-            if guidance_scale != 1.0:
-                cfg_iter = guidance_scale if guidance_decay == "constant" else 1.0
-                sampled_root = self.diffloss.sample(z_root_output, randomize_temperature, cfg_iter)
-                assert sampled_root is not None
-                root_token = sampled_root[0]  # Take conditional sample
-            else:
-                sampled_root = self.diffloss.sample(z_root_output, randomize_temperature, 1.0)
-                assert sampled_root is not None
-                root_token = sampled_root[0]
-            
-            # Store root token (target_tokens[0])
-            sample_tokens[0] = root_token
-            node_tokens[root_node_idx] = root_token
-            # Root node always expands (guaranteed_depth >= 0)
-            sample_status[root_node_idx] = 1
-            
-            # Project root token to embedding space for use as parent feature
-            root_token_embedding = self.z_proj_ln(self.z_proj(root_token.unsqueeze(0).unsqueeze(0)))  # (1, 1, embed_dim)
-            if guidance_scale != 1.0:
-                root_token_embedding_cfg = root_token_embedding.repeat(2, 1, 1)
-            else:
-                root_token_embedding_cfg = root_token_embedding
-            
-            # Track sequence position in target sequence (starts from 1, since root is at position 0)
-            seq_position = 1
-            
-            sample_tree = {}
-            
-            # Generate tokens LOD by LOD (starting from lod=1, since root is lod=0)
-            for lod_idx in range(1, self.num_lod):
-                # Get all nodes at current LOD
-                lod_nodes = [(node_idx, node) for node_idx, node in enumerate(self.ordered_full_nodes) 
-                            if node.lod_level == lod_idx]
-                if not lod_nodes:
-                    continue
-                
-                used_nodes = []
-                
-                # Generate tokens for each node at this LOD
-                for node_idx, node in lod_nodes:
-                    # Check if should generate (guaranteed or parent expanded)
-                    if lod_idx > self.guaranteed_depth:
-                        parent_idx = child_to_parent[node_idx]
-                        if sample_status[parent_idx] != 1:
-                            continue  # Skip if parent didn't expand
-                    
-                    used_nodes.append(node)
-                    
-                    # Get parent node and its feature
-                    parent_idx = child_to_parent[node_idx]
-                    parent_token = node_tokens[parent_idx]
-                    # Project parent token to embedding space
-                    parent_token_embedding = self.z_proj_ln(self.z_proj(parent_token.unsqueeze(0).unsqueeze(0)))  # (1, 1, embed_dim)
-                    if guidance_scale != 1.0:
-                        parent_token_embedding = parent_token_embedding.repeat(2, 1, 1)
-                    
-                    # Get position embedding for this node
-                    node_lod = node.lod_level
-                    node_patch_idx = node.patch_index
-                    position_embedding = self.token_indices_embedding_dict[str(node_lod)](
-                        torch.tensor([node_patch_idx], device=device, dtype=torch.long)
-                    ).unsqueeze(0)  # (1, 1, embed_dim)
-                    
-                    if guidance_scale != 1.0:
-                        position_embedding_cfg = position_embedding.repeat(2, 1, 1)
-                    else:
-                        position_embedding_cfg = position_embedding
-                    
-                    # Prepare input: pos_emb + feature[parent]
-                    # Input sequence position: buffer_size + (seq_position - 1)
-                    # seq_position starts from 1 (root is at position 0 in target sequence)
-                    # So input sequence position is buffer_size + (seq_position - 1)
-                    input_seq_pos = self.buffer_size + (seq_position - 1)
-                    
-                    # Input is position embedding + parent feature
-                    current_input = position_embedding_cfg + parent_token_embedding
-                    
-                    input_pos = torch.tensor([input_seq_pos], device=device)
-                    freqs_cis_current = self.freqs_cis[input_pos].unsqueeze(0).repeat(effective_bsz, 1, 1, 1)
-                    
-                    # Forward through model
-                    z = self.forward_inference(current_input, freqs_cis_current, input_pos)
-                    z_output = z[:, -1]  # (effective_bsz, embed_dim)
-                    
-                    # Sample token with CFG
-                    if guidance_scale != 1.0:
-                        if guidance_decay == "linear":
-                            cfg_iter = 1.0 + (guidance_scale - 1.0) * (1.0 - seq_position / self.seq_len)
-                        else:
-                            cfg_iter = guidance_scale
-                        sampled_token_latent = self.diffloss.sample(z_output, randomize_temperature, cfg_iter)
-                        assert sampled_token_latent is not None
-                        token_latent = sampled_token_latent[0]  # Take conditional sample
-                    else:
-                        sampled_token = self.diffloss.sample(z_output, randomize_temperature, 1.0)
-                        assert sampled_token is not None
-                        token_latent = sampled_token[0]
-                    
-                    # Store token (target_tokens[seq_position])
-                    sample_tokens[seq_position] = token_latent
-                    node_tokens[node_idx] = token_latent
-                    
-                    # Mark node status and predict expand if needed
-                    if lod_idx < self.guaranteed_depth:
-                        # Guaranteed to expand
-                        sample_status[node_idx] = 1
-                    else:
-                        # Need to predict expand
-                        expand_logit = self.expand_pred_head(z_output[0:1].unsqueeze(0))  # (1, 1, 1)
-                        expand_prob = torch.sigmoid(expand_logit.squeeze())
-                        should_expand = torch.bernoulli(expand_prob).bool()
-                        sample_status[node_idx] = 1 if should_expand else 0
-                    
-                    # Increment sequence position
-                    seq_position += 1
-                    
-                    if seq_position >= self.seq_len:
-                        break
-                
-                if seq_position >= self.seq_len:
-                    break
-                
-                sample_tree[lod_idx] = used_nodes
-            
-            # Clean up KV cache for this sample
-            self.remove_caches()
-            
-            # Truncate to actual generated length and store
-            result_tokens_list.append(sample_tokens[:seq_position])
-            tree_list.append(sample_tree)
-        
-        # Stack results - pad to max length in batch
-        max_len = max(tokens.shape[0] for tokens in result_tokens_list) if result_tokens_list else 0
-        result_tokens = torch.zeros(bsz, max_len, self.token_embed_dim, device=device)
-        
-        for b in range(bsz):
-            seq_len = result_tokens_list[b].shape[0]
-            result_tokens[b, :seq_len] = result_tokens_list[b]
+        # tree_root = build_probabilistic_quadtree(
+        #     self.num_patch_side_list, 
+        #     guaranteed_depth=3, 
+        #     expansion_probs=[0.3, 0.3]
+        # )
+        # final_tree = tree_to_decision_nodes_dict(tree_root, 6)
+        # tree_list = [copy.deepcopy(final_tree) for _ in range(bsz)]
+        # max_seq_len = 0
+        # for lod_idx in final_tree.keys():
+        #     max_seq_len += len(final_tree[lod_idx])
+        with open("/mnt/petrelfs/jianglihan/my_code/quadtok/fixed_quadtree_low.json", 'r') as f:
+            tree_dict_json = json.load(f)
+        final_tree_dict = {}
+        lod_incides = []
+        for lod_idx, node_dict in tree_dict_json['final_tree'].items():
+            nodes = []
+            for node_info in node_dict:
+                node = QuadTreeNode(
+                    patch_index=node_info['patch_index'],
+                    lod_level=node_info['lod_level']
+                )
+                nodes.append(node)
+                lod_incides.append(int(lod_idx))
+            final_tree_dict[int(lod_idx)] = nodes
+        lod_incides = torch.tensor(lod_incides, device=device, dtype=torch.long)
+        tree_list = [copy.deepcopy(final_tree_dict) for _ in range(bsz)]
 
+        max_seq_len = (torch.tensor(tree_dict_json['status_data']) == 1).sum().item()
+        
+        class_embedding = self.class_emb(condition)
+        result_tokens = torch.zeros(bsz, max_seq_len, self.token_embed_dim, device=condition.device)
+
+        if not guidance_scale == 1.0:
+            class_embedding = torch.cat([class_embedding, self.fake_latent.repeat(bsz, 1)], dim=0)
+            bsz *= 2
+
+        with torch.device(condition.device):
+            self.setup_caches(max_batch_size=bsz, max_seq_length=max_seq_len, dtype=class_embedding.dtype)
+
+        x = class_embedding.unsqueeze(1).repeat(1, self.buffer_size, 1)
+        cur_freqs_cis = self.freqs_cis[:self.buffer_size].unsqueeze(0).repeat(bsz, 1, 1, 1)
+        input_pos = torch.arange(0, x.shape[1], device=condition.device)
+        cache_position = self.buffer_size
+
+        decoded_token_num = 0
+
+        for decoding_lod_idx in tqdm(range(lod_incides.max().item() + 1)):
+
+            model_output = self.forward_inference(x, cur_freqs_cis, input_pos)
+            decoding_token_num = (lod_incides == decoding_lod_idx).sum().item()
+
+            model_output = model_output + self.diffusion_pos_embed_learned[:, decoded_token_num: decoded_token_num + decoding_token_num]
+            # breakpoint()
+            sampled_token_latent = self.diffloss.sample(model_output.flatten(0, 1), None, randomize_temperature, guidance_scale).view(bsz, decoding_token_num, -1)
+
+            if not guidance_scale == 1.0:
+                token_latent = sampled_token_latent[:bsz // 2]
+            else:
+                token_latent = sampled_token_latent
+
+            # breakpoint()
+            result_tokens[:, decoded_token_num: decoded_token_num + decoding_token_num] = token_latent.clone()
+
+            if not guidance_scale == 1.0:
+                token_latent = torch.cat([token_latent, token_latent], dim=0)
+
+            token_latent = self.z_proj_ln(self.z_proj(token_latent))
+
+            decoded_token_num += decoding_token_num
+
+            next_lod_idx = decoding_lod_idx + 1
+            if next_lod_idx > lod_incides.max().item():
+                break
+
+            next_lod_nodes = final_tree_dict[next_lod_idx]
+            next_decoding_num = len(next_lod_nodes)
+            
+            # Build mapping: parent (lod, patch_idx) -> index in current_lod_nodes list
+            current_lod_nodes = final_tree_dict[decoding_lod_idx]
+            parent_key_to_idx = {
+                (node.lod_level, node.patch_index): idx 
+                for idx, node in enumerate(current_lod_nodes)
+            }
+            
+            # Build ordered list of parent embeddings for next LOD tokens
+            # Each child token uses its parent's embedding
+            expanded_token_embeddings = []
+            
+            for child_node in next_lod_nodes:
+                # Get parent of this child
+                parent_key = _get_parent_patch_index(
+                    child_node.lod_level,
+                    child_node.patch_index,
+                    self.num_patch_side_list
+                )
+                
+                if parent_key is not None and parent_key in parent_key_to_idx:
+                    # Get parent's position in current LOD
+                    parent_idx_in_lod = parent_key_to_idx[parent_key]
+                    # Get parent's embedding (already duplicated for CFG if needed)
+                    parent_embedding = token_latent[:, parent_idx_in_lod:parent_idx_in_lod+1, :]  # (bsz_cfg, 1, embed_dim)
+                    expanded_token_embeddings.append(parent_embedding)
+                else:
+                    # Should not happen in valid tree structure
+                    raise ValueError(f"Child node {child_node.lod_level}, {child_node.patch_index} has no valid parent")
+            
+            x = torch.cat(expanded_token_embeddings, dim=1)  # (bsz_cfg, next_decoding_num, embed_dim)
+            # Calculate positions for next LOD tokens
+            next_positions = torch.arange(
+                cache_position, 
+                cache_position + next_decoding_num, 
+                device=device
+            )
+            
+            cur_freqs_cis = self.freqs_cis[next_positions].unsqueeze(0).repeat(bsz, 1, 1, 1)
+            input_pos = next_positions
+            cache_position += next_decoding_num
+
+        self.remove_caches()
         return result_tokens, tree_list
 
 
+class QuadtreeMARBox(BaseModel):
+    """ Masked Autoencoder with VisionTransformer backbone
+    """
+    def __init__(self, config):
+        super().__init__()
 
+        self.config = config
+        self.model_config = config.model.generator
+
+        self.model_size = config.model.generator.model_size
+
+        self.embed_dim = {
+                "base": 768,
+                "large": 1024,
+                "xlarge": 1280,
+            }[self.model_size]
+
+        self.depth = {
+                "base": 24,
+                "large": 32,
+                "xlarge": 40,
+            }[self.model_size]
+
+        self.num_heads = {
+                "base": 12,
+                "large": 16,
+                "xlarge": 16,
+            }[self.model_size]
+        
+        norm_layer = partial(nn.LayerNorm, eps=1e-6)
+        mlp_ratio = 4
+
+        # --------------------------------------------------------------------------
+        # VAE and patchify specifics
+        self.vae_embed_dim = config.model.vq_model.token_size
+
+        self.patch_size = config.model.generator.patch_size
+
+        self.seq_len = 1365 # maimum quadtree token number
+        self.token_embed_dim = config.model.vq_model.token_size * (config.model.generator.patch_size**2)
+        self.head_dim = self.embed_dim // self.num_heads
+        self.grad_checkpointing = config.model.grad_checkpointing
+
+        # --------------------------------------------------------------------------
+        # Class Embedding
+        self.num_classes = config.model.generator.class_num
+        self.class_emb = nn.Embedding(config.model.generator.class_num, self.embed_dim)
+        self.label_drop_prob = config.model.generator.label_drop_prob
+        # Fake class embedding for CFG's unconditional generation
+        self.fake_latent = nn.Parameter(torch.zeros(1, self.embed_dim))
+
+        # --------------------------------------------------------------------------
+        # MAR encoder specifics
+        # self.z_proj = nn.Linear(self.token_embed_dim, self.embed_dim, bias=True)
+        # self.z_proj_ln = nn.LayerNorm(self.embed_dim, eps=1e-6)
+
+        self.in_embedder = BoxNerfEmbedder(self.token_embed_dim, self.embed_dim)
+
+        self.buffer_size = config.model.generator.buffer_size
+    
+        self.blocks = nn.ModuleList([
+            TransformerBlock(self.embed_dim, self.num_heads, ffn_dim_multiplier=mlp_ratio,
+                  ffn_dropout_p=config.model.generator.proj_dropout, attn_dropout_p=config.model.generator.attn_dropout) for _ in range(self.depth)])
+
+        self.out_norm = norm_layer(self.embed_dim)
+        
+        # --------------------------------------------------------------------------
+        # Binary classification head for predicting whether to expand children
+        # self.expand_pred_head = nn.Linear(self.embed_dim, 1, bias=True)
+
+        # --------------------------------------------------------------------------
+        # Quadtree position embeddings (learnable tokens for each LOD and patch index)
+        self.num_patch_side_list = config.model.generator.num_patch_side_list
+        self.patch_size_list = config.model.generator.patch_size_list
+        self.num_lod = len(self.num_patch_side_list)
+        
+        # Create learnable embeddings for each LOD level and patch index
+        # self.token_indices_embedding_dict = nn.ModuleDict()
+        # for lod_idx, num_patches in enumerate(self.num_patch_side_list):
+        #     total_patches = num_patches ** 2
+        #     self.token_indices_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.embed_dim)
+        
+        # Build full quadtree structure for node mapping
+        self.full_tree_root = build_quadtree(self.num_patch_side_list)
+        self.ordered_full_nodes = self._get_ordered_nodes(self.full_tree_root)
+        
+        # Create mapping from node (lod, patch_idx) to BFS index
+        self.node_to_idx_map = {
+            (node.lod_level, node.patch_index): i 
+            for i, node in enumerate(self.ordered_full_nodes)
+        }
+        
+        # Guaranteed depth: all nodes with lod <= guaranteed_depth are always present
+        self.guaranteed_depth = config.model.generator.guaranteed_depth
+        
+        # Create LOD level tensor for each node in ordered_full_nodes
+        # This will be used to filter which nodes to predict expand for
+        node_lod_levels = torch.tensor(
+            [node.lod_level for node in self.ordered_full_nodes],
+            dtype=torch.long
+        )
+        self.register_buffer("node_lod_levels", node_lod_levels)
+
+        # *2 because of interleaving position and token
+        max_total_seq_len = self.buffer_size + self.seq_len * 2
+        freqs_cis = precompute_freqs_cis(self.head_dim, max_total_seq_len)
+        self.register_buffer("freqs_cis", freqs_cis)
+
+        # self.diffusion_pos_embed_learned = nn.Parameter(torch.zeros(1, 512, self.embed_dim))
+        self.diffusion_pos_embed_learned = nn.Parameter(torch.zeros(1, 378, self.embed_dim))
+
+        self.initialize_weights()
+
+        # --------------------------------------------------------------------------
+        # Diffusion Loss
+        self.diffloss = DiffLoss(self.config)
+
+        self.diffusion_batch_mul = self.config.model.generator.diffusion_batch_mul
+        
+
+    def _get_ordered_nodes(self, root_node):
+        """Get ordered nodes in BFS order, grouped by LOD level"""
+        if not root_node:
+            return []
+        nodes_by_lod = {i: [] for i in range(self.num_lod)}
+        queue = [root_node]
+        
+        while queue:
+            node = queue.pop(0)
+            if node.lod_level < self.num_lod:
+                nodes_by_lod[node.lod_level].append(node)
+            for child in node.children:
+                queue.append(child)
+        
+        ordered_nodes = []
+        for i in range(self.num_lod):
+            ordered_nodes.extend(nodes_by_lod[i])
+            
+        return ordered_nodes
+
+    def initialize_weights(self):
+        # parameters
+        torch.nn.init.normal_(self.class_emb.weight, std=.02)
+        torch.nn.init.normal_(self.fake_latent, std=.02)
+        torch.nn.init.normal_(self.diffusion_pos_embed_learned, std=.02)
+        
+        # # Initialize quadtree position embeddings
+        # for lod_idx_str, embedding_layer in self.token_indices_embedding_dict.items():
+        #     torch.nn.init.normal_(embedding_layer.weight, std=.02)
+
+        # initialize nn.Linear and nn.LayerNorm
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            # we use xavier_uniform following official JAX ViT:
+            torch.nn.init.xavier_uniform_(m.weight)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+            if m.weight is not None:
+                nn.init.constant_(m.weight, 1.0)
+
+
+    def setup_caches(self, max_batch_size, max_seq_length, dtype):
+        # if self.max_seq_length >= max_seq_length and self.max_batch_size >= max_batch_size:
+    #     return
+        max_seq_length = find_multiple(max_seq_length, 8)
+        self.max_seq_length = max_seq_length
+        self.max_batch_size = max_batch_size
+        for b in self.blocks:
+            b.attention.kv_cache = KVCache(
+                max_batch_size, max_seq_length, self.num_heads, self.head_dim, dtype
+            )
+
+        causal_mask = torch.tril(
+            torch.ones(self.max_seq_length, self.max_seq_length, dtype=torch.bool)
+        )
+        self.causal_mask = causal_mask.unsqueeze(0).repeat(self.max_batch_size, 1, 1)
+
+
+    def setup_caches(self, max_batch_size, max_seq_length, dtype):
+        """
+        Setup KV caches for all transformer blocks.
+        
+        Args:
+            max_batch_size: Maximum batch size for generation
+            max_seq_length: Maximum sequence length
+            dtype: Data type for cache tensors
+        """
+        max_seq_length = find_multiple(max_seq_length, 8)
+        self.max_seq_length = max_seq_length
+        self.max_batch_size = max_batch_size
+        for b in self.blocks:
+            b.attention.kv_cache = KVCache(
+                max_batch_size, max_seq_length, self.num_heads, self.head_dim, dtype
+            )
+
+        causal_mask = torch.tril(
+            torch.ones(self.max_seq_length, self.max_seq_length, dtype=torch.bool)
+        )
+        self.causal_mask = causal_mask.unsqueeze(0).repeat(self.max_batch_size, 1, 1)
+
+    def remove_caches(self):
+        """Remove KV caches from all transformer blocks."""
+        for l in self.blocks:
+            l.attention.kv_cache = None
+        self.max_batch_size = -1
+        self.max_seq_length = -1
+
+    def forward_inference(self, 
+                        x: torch.Tensor, 
+                        freqs_cis: torch.Tensor, 
+                        input_pos: torch.Tensor):
+        """
+        Forward pass for inference with KV cache.
+        
+        Args:
+            x: Input tensor of shape (batch_size, seq_len, embed_dim)
+            freqs_cis: RoPE frequencies
+            input_pos: Position indices for current tokens
+        
+        Returns:
+            Output tensor of shape (batch_size, seq_len, embed_dim)
+        """
+        bs = x.shape[0]
+        mask = self.causal_mask[:bs, None, input_pos]
+        h = x
+        for layer in self.blocks:
+            h = layer(h, freqs_cis, start_pos=input_pos, mask=mask)
+        h = self.out_norm(h)
+        return h
+
+    def forward_loss(self, z, target, pos, padding_mask=None):
+        """
+        Compute loss with optional padding mask.
+        Args:
+            z: Predicted tokens of shape (batch_size, seq_len, embed_dim)
+            target: Target tokens of shape (batch_size, seq_len, embed_dim)
+            padding_mask: Boolean mask of shape (batch_size, seq_len) where True indicates padding
+        """
+
+        target = target[(~padding_mask)].repeat(self.diffusion_batch_mul, 1)
+        z = z[(~padding_mask)].repeat(self.diffusion_batch_mul, 1)
+        pos = pos[(~padding_mask)].repeat(self.diffusion_batch_mul, 1)
+
+        loss, loss_dict = self.diffloss(z=z, target=target, pos=pos, mask=None)
+        return loss, loss_dict
+
+    def forward(self, input_tokens, target_tokens, node_positions, labels):
+        """
+        Forward pass for QuadtreeMAR.
+        Args:
+            input_tokens: Input tokens (z_quantized) of shape (batch_size, max_seq_len - 1, token_embed_dim)
+               Padded positions have value -1.0
+            target_tokens: Target tokens (z_quantized) of shape (batch_size, max_seq_len, token_embed_dim)
+               Padded positions have value -1.0
+            tree_dict: Dictionary containing:
+                - 'status': Tensor of shape (batch_size, num_total_nodes)
+                - 'lengths': Tensor of shape (batch_size,) with actual sequence lengths
+                - 'tree': List of tree structures (one per batch item)
+            labels: Class labels of shape (batch_size,)
+        """
+        
+        # class embed
+        class_embedding = self.class_emb(labels)
+
+        bs, max_seq_len, in_dim = target_tokens.shape
+        device = target_tokens.device
+        
+        # Random class label dropout during training
+        if self.training:
+            drop_latent_mask = torch.rand(bs) < self.label_drop_prob
+            drop_latent_mask = drop_latent_mask.unsqueeze(-1).cuda().to(target_tokens.dtype)
+            class_embedding = drop_latent_mask * self.fake_latent + (1 - drop_latent_mask) * class_embedding
+        
+        cond_embeddings = class_embedding.unsqueeze(1).repeat(1, self.buffer_size, 1)
+        
+        # Project input tokens
+        token_embeddings = self.in_embedder(input_tokens, node_positions[1:].unsqueeze(0).repeat(bs, 1, 1))
+        # parent_token_embeddings = self.z_proj_ln(self.z_proj(parent_tokens))
+        # Interleave position tokens and token embeddings
+        z = torch.cat(
+            (cond_embeddings, token_embeddings),
+            dim=1
+        )
+
+        freqs_cis = self.freqs_cis[:max_seq_len]
+        freqs_cis = freqs_cis.unsqueeze(0).repeat(bs, 1, 1, 1)
+    
+        if self.grad_checkpointing and not torch.jit.is_scripting():
+            for block in self.blocks:
+                z = checkpoint(block, z, freqs_cis, None, None, use_reentrant=False)
+        else:
+            for block in self.blocks:
+                z = block(z, freqs_cis, start_pos=None, mask=None)
+
+
+         # add position aware for diffusion head
+
+        z = self.out_norm(z)
+        z = z + self.diffusion_pos_embed_learned[:, :max_seq_len]
+
+        # Compute reconstruction loss only on valid (non-padding) positions
+        diff_loss, loss_dict = self.forward_loss(z=z, target=target_tokens, pos=node_positions.unsqueeze(0).repeat(bs, 1, 1), padding_mask=torch.zeros(bs, max_seq_len, dtype=torch.bool))
+        
+        # Combine losses
+        total_loss = diff_loss #+ expand_loss * self.config.losses.expand_loss_weight
+        # loss_dict['expand_loss'] = expand_loss.mean().detach()
+        # loss_dict['expand_acc'] = correct.mean().detach()
+        loss_dict['total_loss'] = total_loss.mean().detach()
+        loss_dict['z'] = z.detach() 
+        
+        return total_loss, loss_dict
+
+    def forward_inference(self, 
+                        x: torch.Tensor, 
+                        freqs_cis: torch.Tensor, 
+                        input_pos: torch.Tensor):
+        bs = x.shape[0]
+        mask = self.causal_mask[:bs, None, input_pos]
+        h = x
+        for layer in self.blocks:
+            h = layer(h, freqs_cis, start_pos=input_pos, mask=mask)
+        h = self.out_norm(h)
+        return h
+
+    def remove_caches(self):
+        for l in self.blocks:
+            l.attention.kv_cache = None
+        self.max_batch_size = -1
+        self.max_seq_length = -1
+
+    @torch.no_grad()
+    def generate(self,
+                 condition,
+                 guidance_scale=3.0,
+                 guidance_decay="constant",
+                 guidance_scale_pow=3.0,
+                 randomize_temperature=4.5,
+                 softmax_temperature_annealing=False,
+                 num_sample_steps=8):
+        """
+        Generate tokens following quadtree structure with autoregressive generation.
+        Input sequence: [cls, pos_emb[1,0]+feature[parent[1,0]], pos_emb[1,1]+feature[parent[1,1]], ...]
+        Target sequence: [feature[0,0], feature[1,0], feature[1,1], ...]
+        Each sample in the batch is generated independently.
+        
+        Args:
+            condition: Class labels of shape (batch_size,)
+            guidance_scale: CFG guidance scale
+            guidance_decay: "constant" or "linear"
+            randomize_temperature: Temperature for sampling
+        
+        Returns:
+            result_tokens: Generated tokens of shape (batch_size, max_seq_len, token_embed_dim)
+            tree_list: List of generated tree structures
+        """
+        bsz = condition.shape[0]
+        device = condition.device
+        
+        # tree_root = build_probabilistic_quadtree(
+        #     self.num_patch_side_list, 
+        #     guaranteed_depth=3, 
+        #     expansion_probs=[0.3, 0.3]
+        # )
+        # final_tree = tree_to_decision_nodes_dict(tree_root, 6)
+        # tree_list = [copy.deepcopy(final_tree) for _ in range(bsz)]
+        # max_seq_len = 0
+        # for lod_idx in final_tree.keys():
+        #     max_seq_len += len(final_tree[lod_idx])
+        with open("/mnt/petrelfs/jianglihan/my_code/quadtok/fixed_quadtree_low.json", 'r') as f:
+            tree_dict_json = json.load(f)
+        final_tree_dict = {}
+        num_patch_side_list = self.num_patch_side_list
+        patch_size_list = self.patch_size_list
+        resolution = 256
+        node_positions = []
+        for lod_idx, node_dict in tree_dict_json['final_tree'].items():
+            patch_size = patch_size_list[int(lod_idx)]
+            nodes = []
+            for node_info in node_dict:
+                node = QuadTreeNode(
+                    patch_index=node_info['patch_index'],
+                    lod_level=node_info['lod_level']
+                )
+                row, col = divmod(node.patch_index, num_patch_side_list[int(lod_idx)])
+                y_start, x_start = row * patch_size, col * patch_size
+                y_end, x_end = y_start + patch_size, x_start + patch_size
+                node_position = [x_start / resolution, y_start / resolution, x_end / resolution, y_end / resolution]
+                node_positions.append(node_position)
+                nodes.append(node)
+            final_tree_dict[int(lod_idx)] = nodes
+
+        
+        tree_list = [copy.deepcopy(final_tree_dict) for _ in range(bsz)]
+
+        max_seq_len = (torch.tensor(tree_dict_json['status_data']) == 1).sum().item()
+        
+        class_embedding = self.class_emb(condition)
+
+        node_positions = torch.tensor(node_positions, device=device, dtype=class_embedding.dtype)
+        result_tokens = torch.zeros(bsz, max_seq_len, self.token_embed_dim, device=condition.device)
+
+        if not guidance_scale == 1.0:
+            class_embedding = torch.cat([class_embedding, self.fake_latent.repeat(bsz, 1)], dim=0)
+            bsz *= 2
+
+        with torch.device(condition.device):
+            self.setup_caches(max_batch_size=bsz, max_seq_length=max_seq_len, dtype=class_embedding.dtype)
+
+        x = class_embedding.unsqueeze(1).repeat(1, self.buffer_size, 1)
+        cur_freqs_cis = self.freqs_cis[:self.buffer_size].unsqueeze(0).repeat(bsz, 1, 1, 1)
+        input_pos = torch.arange(0, x.shape[1], device=condition.device)
+        cache_position = self.buffer_size
+
+        for step in tqdm(range(max_seq_len)):
+
+            model_output = self.forward_inference(x, cur_freqs_cis, input_pos)
+
+            model_output = model_output + self.diffusion_pos_embed_learned[:, step:step + 1]
+
+            if not guidance_scale == 1.0:
+                if guidance_decay == "linear":
+                    cfg_iter = 1 + (guidance_scale - 1) * (step) / self.seq_len
+                elif guidance_decay == "constant":
+                    cfg_iter = guidance_scale
+            else:
+                cfg_iter = guidance_scale
+            current_pos = node_positions[step, :].view(1, 4).repeat(bsz, 1)
+
+            sampled_token_latent = self.diffloss.sample(model_output.squeeze(1), current_pos, randomize_temperature, cfg_iter)
+            if not guidance_scale == 1.0:
+                token_latent = sampled_token_latent[:bsz // 2].unsqueeze(1)
+            else:
+                token_latent = sampled_token_latent.unsqueeze(1)
+
+            result_tokens[:, step] = token_latent.clone().squeeze(1)
+
+            if step == max_seq_len - 1:
+                break
+            if not guidance_scale == 1.0:
+                token_latent = torch.cat([token_latent, token_latent], dim=0)
+
+            x = self.in_embedder(token_latent, node_positions[step + 1, :].view(1, 1, 4).repeat(bsz, 1, 1))
+
+            cur_freqs_cis = self.freqs_cis[cache_position:cache_position + 1].unsqueeze(0).repeat(bsz, 1, 1, 1)
+            input_pos = torch.arange(cache_position, cache_position + 1, device=condition.device)
+            cache_position += 1
+        self.remove_caches()
+        return result_tokens, tree_list
 
 class QuadtreeGPT(BaseModel):
     """ Masked Autoencoder with VisionTransformer backbone
@@ -1550,11 +2063,11 @@ class QuadtreeGPT(BaseModel):
         self.num_patch_side_list = config.model.generator.num_patch_side_list
         self.num_lod = len(self.num_patch_side_list)
         
-        # Create learnable embeddings for each LOD level and patch index
-        self.token_indices_embedding_dict = nn.ModuleDict()
-        for lod_idx, num_patches in enumerate(self.num_patch_side_list):
-            total_patches = num_patches ** 2
-            self.token_indices_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.embed_dim)
+        # # Create learnable embeddings for each LOD level and patch index
+        # self.token_indices_embedding_dict = nn.ModuleDict()
+        # for lod_idx, num_patches in enumerate(self.num_patch_side_list):
+        #     total_patches = num_patches ** 2
+        #     self.token_indices_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.embed_dim)
         
         # Build full quadtree structure for node mapping
         self.full_tree_root = build_quadtree(self.num_patch_side_list)
@@ -1612,9 +2125,9 @@ class QuadtreeGPT(BaseModel):
         torch.nn.init.normal_(self.fake_latent, std=.02)
         torch.nn.init.normal_(self.token_embedding.weight, std=.02)
         
-        # Initialize quadtree position embeddings
-        for lod_idx_str, embedding_layer in self.token_indices_embedding_dict.items():
-            torch.nn.init.normal_(embedding_layer.weight, std=.02)
+        # # Initialize quadtree position embeddings
+        # for lod_idx_str, embedding_layer in self.token_indices_embedding_dict.items():
+        #     torch.nn.init.normal_(embedding_layer.weight, std=.02)
 
         # initialize nn.Linear and nn.LayerNorm
         self.apply(self._init_weights)
@@ -1814,23 +2327,88 @@ class QuadtreeGPT(BaseModel):
         for layer in self.blocks:
             h = layer(h, freqs_cis, start_pos=input_pos, mask=mask)
         h = self.out_norm(h)
-        return h
+        logits = self.output(h)
+        return logits
 
-    def forward_loss(self, z, target, padding_mask=None):
-        """
-        Compute loss with optional padding mask.
-        Args:
-            z: Predicted tokens of shape (batch_size, seq_len, embed_dim)
-            target: Target tokens of shape (batch_size, seq_len, embed_dim)
-            padding_mask: Boolean mask of shape (batch_size, seq_len) where True indicates padding
-        """
+    # def forward(self, input_tokens, target_tokens, tree_dict, labels):
+    #     """
+    #     Forward pass for QuadtreeMAR.
+    #     Args:
+    #         input_tokens: Input tokens (z_quantized) of shape (batch_size, max_seq_len - 1, token_embed_dim)
+    #            Padded positions have value -1.0
+    #         target_tokens: Target tokens (z_quantized) of shape (batch_size, max_seq_len, token_embed_dim)
+    #            Padded positions have value -1.0
+    #         tree_dict: Dictionary containing:
+    #             - 'status': Tensor of shape (batch_size, num_total_nodes)
+    #             - 'lengths': Tensor of shape (batch_size,) with actual sequence lengths
+    #             - 'tree': List of tree structures (one per batch item)
+    #         labels: Class labels of shape (batch_size,)
+    #     """
+    #     # Extract tree information
+    #     status = tree_dict['status']
+    #     lengths = tree_dict['lengths']
 
-        target = target[(~padding_mask)].repeat(self.diffusion_batch_mul, 1)
-        z = z[(~padding_mask)].repeat(self.diffusion_batch_mul, 1)
-        loss, loss_dict = self.diffloss(z=z, target=target, mask=None)
-        return loss, loss_dict
+    #     # class embed
+    #     class_embedding = self.class_emb(labels)
 
-    def forward(self, input_tokens, target_tokens, tree_dict, labels):
+    #     bs, max_seq_len = target_tokens.shape
+    #     device = target_tokens.device
+        
+    #     # Create padding mask: True for padding positions, False for valid positions
+    #     # Shape: (batch_size, max_seq_len)
+    #     padding_mask = torch.arange(max_seq_len, device=device).unsqueeze(0) >= lengths.unsqueeze(1)
+        
+    #     # Get position instruction tokens based on status and ordered_full_nodes
+    #     # Padding positions will have zero embeddings
+    #     position_instruction_tokens = self.get_position_instruction_tokens_from_status(
+    #         status, lengths
+    #     )
+        
+    #     # Random class label dropout during training
+    #     if self.training:
+    #         drop_latent_mask = torch.rand(bs) < self.label_drop_prob
+    #         drop_latent_mask = drop_latent_mask.unsqueeze(-1).cuda().to(target_tokens.dtype)
+    #         class_embedding = drop_latent_mask * self.fake_latent + (1 - drop_latent_mask) * class_embedding
+        
+    #     cond_embeddings = class_embedding.unsqueeze(1).repeat(1, self.buffer_size, 1)
+        
+    #     valid_mask = input_tokens >= 0  # (B, N)
+    #     safe_indices = torch.where(valid_mask, input_tokens, torch.zeros_like(input_tokens))
+    #     token_embeddings = self.token_embedding(safe_indices)  # (B, N, C
+    #     token_embeddings = token_embeddings * valid_mask.unsqueeze(-1)  # (B, N, C)
+
+    #     z = torch.cat(
+    #         (cond_embeddings, position_instruction_tokens[:, 1:] + token_embeddings),
+    #         dim=1
+    #     )
+
+    #     freqs_cis = self.freqs_cis[:max_seq_len]
+    #     freqs_cis = freqs_cis.unsqueeze(0).repeat(bs, 1, 1, 1)
+    
+    #     if self.grad_checkpointing and not torch.jit.is_scripting():
+    #         for block in self.blocks:
+    #             z = checkpoint(block, z, freqs_cis, None, None, use_reentrant=False)
+    #     else:
+    #         for block in self.blocks:
+    #             z = block(z, freqs_cis, start_pos=None, mask=None)
+
+
+    #      # add position aware for diffusion head
+
+    #     z = self.out_norm(z)
+    #     token_logits = self.output(z)
+
+    #     valid_mask = target_tokens >= 0
+
+    #     total_loss = F.cross_entropy(token_logits[valid_mask], target_tokens[valid_mask], reduction="mean")
+    #     loss_dict = {}
+    #     # Combine losses
+
+    #     loss_dict['total_loss'] = total_loss.mean().detach()
+    #     loss_dict['token_logits'] = token_logits.detach() 
+    #     return total_loss, loss_dict
+
+    def forward(self, input_tokens, target_tokens, lod_idx, labels):
         """
         Forward pass for QuadtreeMAR.
         Args:
@@ -1844,25 +2422,12 @@ class QuadtreeGPT(BaseModel):
                 - 'tree': List of tree structures (one per batch item)
             labels: Class labels of shape (batch_size,)
         """
-        # Extract tree information
-        status = tree_dict['status']
-        lengths = tree_dict['lengths']
 
         # class embed
         class_embedding = self.class_emb(labels)
 
         bs, max_seq_len = target_tokens.shape
         device = target_tokens.device
-        
-        # Create padding mask: True for padding positions, False for valid positions
-        # Shape: (batch_size, max_seq_len)
-        padding_mask = torch.arange(max_seq_len, device=device).unsqueeze(0) >= lengths.unsqueeze(1)
-        
-        # Get position instruction tokens based on status and ordered_full_nodes
-        # Padding positions will have zero embeddings
-        position_instruction_tokens = self.get_position_instruction_tokens_from_status(
-            status, lengths
-        )
         
         # Random class label dropout during training
         if self.training:
@@ -1871,14 +2436,10 @@ class QuadtreeGPT(BaseModel):
             class_embedding = drop_latent_mask * self.fake_latent + (1 - drop_latent_mask) * class_embedding
         
         cond_embeddings = class_embedding.unsqueeze(1).repeat(1, self.buffer_size, 1)
-        
-        valid_mask = input_tokens >= 0  # (B, N)
-        safe_indices = torch.where(valid_mask, input_tokens, torch.zeros_like(input_tokens))
-        token_embeddings = self.token_embedding(safe_indices)  # (B, N, C
-        token_embeddings = token_embeddings * valid_mask.unsqueeze(-1)  # (B, N, C)
+        token_embeddings = self.token_embedding(input_tokens)  # (B, N, C
 
         z = torch.cat(
-            (cond_embeddings, position_instruction_tokens[:, 1:] + token_embeddings),
+            (cond_embeddings, token_embeddings),
             dim=1
         )
 
@@ -1891,19 +2452,123 @@ class QuadtreeGPT(BaseModel):
         else:
             for block in self.blocks:
                 z = block(z, freqs_cis, start_pos=None, mask=None)
-
-
          # add position aware for diffusion head
 
         z = self.out_norm(z)
         token_logits = self.output(z)
 
-        valid_mask = target_tokens >= 0
-
-        total_loss = F.cross_entropy(token_logits[valid_mask], target_tokens[valid_mask], reduction="mean")
+        total_loss = F.cross_entropy(token_logits.flatten(0, 1).contiguous().float(), target_tokens.flatten(0, 1).contiguous(), reduction="mean")
         loss_dict = {}
         # Combine losses
 
         loss_dict['total_loss'] = total_loss.mean().detach()
         loss_dict['token_logits'] = token_logits.detach() 
         return total_loss, loss_dict
+
+    @torch.no_grad()
+    def generate(self,
+                 condition,
+                 guidance_scale=3.0,
+                 guidance_decay="constant",
+                 guidance_scale_pow=3.0,
+                 randomize_temperature=4.5,
+                 softmax_temperature_annealing=False,
+                 num_sample_steps=8):
+        """
+        Generate tokens following quadtree structure with autoregressive generation.
+        Input sequence: [cls, pos_emb[1,0]+feature[parent[1,0]], pos_emb[1,1]+feature[parent[1,1]], ...]
+        Target sequence: [feature[0,0], feature[1,0], feature[1,1], ...]
+        Each sample in the batch is generated independently.
+        
+        Args:
+            condition: Class labels of shape (batch_size,)
+            guidance_scale: CFG guidance scale
+            guidance_decay: "constant" or "linear"
+            randomize_temperature: Temperature for sampling
+        
+        Returns:
+            result_tokens: Generated tokens of shape (batch_size, max_seq_len, token_embed_dim)
+            tree_list: List of generated tree structures
+        """
+        bsz = condition.shape[0]
+        device = condition.device
+        
+        # tree_root = build_probabilistic_quadtree(
+        #     self.num_patch_side_list, 
+        #     guaranteed_depth=3, 
+        #     expansion_probs=[0.3, 0.3]
+        # )
+        # final_tree = tree_to_decision_nodes_dict(tree_root, 6)
+        # tree_list = [copy.deepcopy(final_tree) for _ in range(bsz)]
+        # max_seq_len = 0
+        # for lod_idx in final_tree.keys():
+        #     max_seq_len += len(final_tree[lod_idx])
+        with open("/mnt/petrelfs/jianglihan/my_code/quadtok/fixed_quadtree_low.json", 'r') as f:
+            tree_dict_json = json.load(f)
+        final_tree_dict = {}
+        lod_incides = []
+        for lod_idx, node_dict in tree_dict_json['final_tree'].items():
+            nodes = []
+            for node_info in node_dict:
+                node = QuadTreeNode(
+                    patch_index=node_info['patch_index'],
+                    lod_level=node_info['lod_level']
+                )
+                nodes.append(node)
+                lod_incides.append(int(lod_idx))
+            final_tree_dict[int(lod_idx)] = nodes
+        lod_incides = torch.tensor(lod_incides, device=device, dtype=torch.long)
+
+        tree_list = [copy.deepcopy(final_tree_dict) for _ in range(bsz)]
+
+        max_seq_len = (torch.tensor(tree_dict_json['status_data']) == 1).sum().item()
+        
+        class_embedding = self.class_emb(condition)
+
+        result_tokens = torch.zeros(bsz, max_seq_len, device=condition.device)
+
+        if not guidance_scale == 1.0:
+            class_embedding = torch.cat([class_embedding, self.fake_latent.repeat(bsz, 1)], dim=0)
+            bsz *= 2
+
+        with torch.device(condition.device):
+            self.setup_caches(max_batch_size=bsz, max_seq_length=max_seq_len, dtype=class_embedding.dtype)
+
+        x = class_embedding.unsqueeze(1).repeat(1, self.buffer_size, 1)
+        cur_freqs_cis = self.freqs_cis[:self.buffer_size].unsqueeze(0).repeat(bsz, 1, 1, 1)
+        input_pos = torch.arange(0, x.shape[1], device=condition.device)
+        cache_position = self.buffer_size
+
+        for step in tqdm(range(max_seq_len)):
+
+            token_logitis = self.forward_inference(x, cur_freqs_cis, input_pos)
+
+            if not guidance_scale == 1.0:
+                if guidance_decay == "linear":
+                    cfg_iter = 1 + (guidance_scale - 1) * (step) / self.seq_len
+                elif guidance_decay == "constant":
+                    cfg_iter = guidance_scale
+            else:
+                cfg_iter = guidance_scale
+            # apply cfg
+            if not guidance_scale == 1.0:
+                cond_logits, uncond_logits = torch.chunk(token_logitis, 2, dim=0)
+                logits = uncond_logits + cfg_iter * (cond_logits - uncond_logits)
+
+            incides = sample(logits, randomize_temperature)[0]
+
+            result_tokens[:, step] = incides.clone().squeeze(1)
+
+            if step == max_seq_len - 1:
+                break
+            token_latent = self.token_embedding(incides)
+            if not guidance_scale == 1.0:
+                token_latent = torch.cat([token_latent, token_latent], dim=0)
+
+            x = token_latent
+
+            cur_freqs_cis = self.freqs_cis[cache_position:cache_position + 1].unsqueeze(0).repeat(bsz, 1, 1, 1)
+            input_pos = torch.arange(cache_position, cache_position + 1, device=condition.device)
+            cache_position += 1
+        self.remove_caches()
+        return result_tokens, tree_list

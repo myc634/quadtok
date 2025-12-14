@@ -167,6 +167,32 @@ class Mlp(nn.Module):
         x = self.drop(x)
         return x
 
+class NerfBlock(nn.Module):
+    def __init__(self, hidden_size_s, hidden_size_x, mlp_ratio=4):
+        super().__init__()
+        self.param_generator1 = nn.Linear(hidden_size_s, 2*hidden_size_x**2*mlp_ratio, bias=True)
+        self.norm = nn.RMSNorm(hidden_size_x, eps=1e-6)
+        self.mlp_ratio = mlp_ratio
+    def forward(self, x, s):
+        batch_size, num_x, hidden_size_x = x.shape
+        mlp_params1 = self.param_generator1(s)
+        fc1_param1, fc2_param1 = mlp_params1.chunk(2, dim=-1)
+        fc1_param1 = fc1_param1.view(batch_size, hidden_size_x, hidden_size_x*self.mlp_ratio)
+        fc2_param1 = fc2_param1.view(batch_size, hidden_size_x*self.mlp_ratio, hidden_size_x)
+
+        # normalize fc1
+        normalized_fc1_param1 = torch.nn.functional.normalize(fc1_param1, dim=-2)
+        # normalize fc2
+        normalized_fc2_param1 = torch.nn.functional.normalize(fc2_param1, dim=-2)
+        # mlp 1
+        res_x = x
+        x = self.norm(x)
+        x = torch.bmm(x, normalized_fc1_param1)
+        x = torch.nn.functional.silu(x)
+        x = torch.bmm(x, normalized_fc2_param1)
+        x = x + res_x
+        return x
+
 
 class UViTBlock(nn.Module):
 
@@ -288,7 +314,6 @@ class FinalLayer(nn.Module):
         x = self.linear(x)
         return x
 
-
 class SimpleMLPAdaLN(nn.Module):
     """
     The MLP for Diffusion Loss.
@@ -320,6 +345,7 @@ class SimpleMLPAdaLN(nn.Module):
         self.cond_embed = nn.Linear(z_channels, model_channels)
 
         self.input_proj = nn.Linear(in_channels, model_channels)
+        # self.input_proj = BoxNerfEmbedder(in_channels, model_channels)
 
         res_blocks = []
         for i in range(num_res_blocks):
@@ -327,7 +353,14 @@ class SimpleMLPAdaLN(nn.Module):
                 model_channels,
             ))
 
+        # nerf_blocks = []
+        # for i in range(num_res_blocks):
+        #     nerf_blocks.append(NerfBlock(
+        #         model_channels, model_channels
+        #     ))
+
         self.res_blocks = nn.ModuleList(res_blocks)
+        # self.nerf_blocks = nn.ModuleList(nerf_blocks)
         self.final_layer = FinalLayer(model_channels, out_channels)
 
         self.initialize_weights()
@@ -355,7 +388,7 @@ class SimpleMLPAdaLN(nn.Module):
         nn.init.constant_(self.final_layer.linear.weight, 0)
         nn.init.constant_(self.final_layer.linear.bias, 0)
 
-    def forward(self, x, t, c):
+    def forward(self, x, t, c, pos):
         """
         Apply the model to an input batch.
         :param x: an [N x C] Tensor of inputs.
@@ -369,19 +402,138 @@ class SimpleMLPAdaLN(nn.Module):
 
         y = t + c
 
-        if self.grad_checkpointing and not torch.jit.is_scripting():
-            for block in self.res_blocks:
-                x = checkpoint(block, x, y)
+        if self.grad_checkpointing and not torch.jit.is_scripting() and self.training:
+            for res_block in self.res_blocks:
+                x = checkpoint(res_block, x, y)
         else:
-            for block in self.res_blocks:
-                x = block(x, y)
+            for res_block in self.res_blocks:
+                x = res_block(x, y)
 
         return self.final_layer(x, y)
 
-    def forward_with_cfg(self, x, t, c, cfg_scale):
+    def forward_with_cfg(self, x, t, c, pos, cfg_scale):
         half = x[: len(x) // 2]
         combined = torch.cat([half, half], dim=0)
-        model_out = self.forward(combined, t, c)
+        model_out = self.forward(combined, t, c, pos)
+        eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
+        cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
+        half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
+        eps = torch.cat([half_eps, half_eps], dim=0)
+        return torch.cat([eps, rest], dim=1)
+
+
+class SimpleMLPAdaLNBox(nn.Module):
+    """
+    The MLP for Diffusion Loss.
+    :param in_channels: channels in the input Tensor.
+    :param model_channels: base channel count for the model.
+    :param out_channels: channels in the output Tensor.
+    :param z_channels: channels in the condition.
+    :param num_res_blocks: number of residual blocks per downsample.
+    """
+
+    def __init__(
+        self,
+        in_channels,
+        model_channels,
+        out_channels,
+        z_channels,
+        num_res_blocks,
+        grad_checkpointing=False,
+    ):
+        super().__init__()
+
+        self.in_channels = in_channels
+        self.model_channels = model_channels
+        self.out_channels = out_channels
+        self.num_res_blocks = num_res_blocks
+        self.grad_checkpointing = grad_checkpointing
+        self.num_freq = 8
+
+        self.time_embed = TimestepEmbedder(model_channels)
+        self.cond_embed = nn.Linear(z_channels, model_channels)
+
+        self.freq_dim = 4 * self.num_freq * 2 
+        self.input_proj = nn.Linear(in_channels + self.freq_dim, model_channels)
+        # self.input_proj = BoxNerfEmbedder(in_channels, model_channels)
+
+        res_blocks = []
+        for i in range(num_res_blocks):
+            res_blocks.append(ResBlock(
+                model_channels,
+            ))
+
+        # nerf_blocks = []
+        # for i in range(num_res_blocks // 2):
+        #     nerf_blocks.append(NerfBlock(
+        #         model_channels, model_channels
+        #     ))
+
+        self.res_blocks = nn.ModuleList(res_blocks)
+        # self.nerf_blocks = nn.ModuleList(nerf_blocks)
+        self.final_layer = FinalLayer(model_channels, out_channels)
+
+        self.initialize_weights()
+
+    def initialize_weights(self):
+        def _basic_init(module):
+            if isinstance(module, nn.Linear):
+                torch.nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
+        self.apply(_basic_init)
+
+        # Initialize timestep embedding MLP
+        nn.init.normal_(self.time_embed.mlp[0].weight, std=0.02)
+        nn.init.normal_(self.time_embed.mlp[2].weight, std=0.02)
+
+        # Zero-out adaLN modulation layers
+        for block in self.res_blocks:
+            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
+            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
+
+        # Zero-out output layers
+        nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)
+        nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
+        nn.init.constant_(self.final_layer.linear.weight, 0)
+        nn.init.constant_(self.final_layer.linear.bias, 0)
+
+    def forward(self, x, t, c, pos):
+        """
+        Apply the model to an input batch.
+        :param x: an [N x C] Tensor of inputs.
+        :param t: a 1-D batch of timesteps.
+        :param c: conditioning from AR transformer.
+        :return: an [N x C] Tensor of outputs.
+        """
+
+        # encode pos into freq
+        freqs = torch.linspace(1.0, self.num_freq, self.num_freq, device=x.device, dtype=x.dtype)
+        pos = pos.unsqueeze(-1)
+        freqs = freqs.view(1, 1, -1)
+        pos_bands = pos * freqs * torch.pi
+        fourier_features = torch.cat([torch.sin(pos_bands), torch.cos(pos_bands)], dim=-1)
+
+        x = self.input_proj(torch.cat([x, fourier_features.flatten(-2, -1).contiguous()], dim=-1))
+
+        t = self.time_embed(t)
+        c = self.cond_embed(c)
+
+        y = t + c
+
+        if self.grad_checkpointing and not torch.jit.is_scripting() and self.training:
+            for res_block in self.res_blocks:
+                x = checkpoint(res_block, x, y)
+        else:
+            for res_block in self.res_blocks:
+                x = res_block(x, y)
+
+        return self.final_layer(x, y)
+
+    def forward_with_cfg(self, x, t, c, pos, cfg_scale):
+        half = x[: len(x) // 2]
+        combined = torch.cat([half, half], dim=0)
+        model_out = self.forward(combined, t, c, pos)
         eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
         cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
         half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
@@ -1241,10 +1393,7 @@ class QuadTokDecoder(nn.Module):
 
 
     def forward(self, z_quantized, tree_structure):
-        if self.train_policy:
-            return self._forward_policy(z_quantized, tree_structure)
-        else:
-            return self._forward_reconstruction(z_quantized, tree_structure)
+        return self._forward_reconstruction(z_quantized, tree_structure)
         
 
 
@@ -1263,6 +1412,8 @@ class QuadTokSelctor(nn.Module):
         self.token_size = config.model.selector.token_size
 
         self.train_policy = config.model.get("train_policy", False)
+
+        self.repa_param = config.losses.get("repa_param", None)
 
         if config.model.vq_model.get("quantize_mode", "vq") == "vae":
             self.token_size = self.token_size * 2 # needs to split into mean and std
@@ -1303,6 +1454,10 @@ class QuadTokSelctor(nn.Module):
 
         self.ln_post = nn.LayerNorm(self.width)
         self.out_proj = nn.Linear(self.width, self.token_size)
+
+        if self.repa_param is not None:
+            self.ln_align = nn.LayerNorm(self.width)
+            self.out_proj_align = nn.Linear(self.width, 768)
 
         self.ordered_full_nodes = self._get_ordered_nodes(build_quadtree(self.num_patch_side_list))
 
@@ -1364,12 +1519,21 @@ class QuadTokSelctor(nn.Module):
         for i in range(self.num_layers):
             x = self.transformer[i](x)
         x = x.permute(1, 0, 2)  # LND -> NLD
-        x = x[:, -seq_len:]
-        x = self.ln_post(x)
-        x = self.out_proj(x)
+        if self.repa_param is not None:
+            align_x = x[:, seq_len:]
+            x = x[:, -seq_len:]
+            x = self.ln_post(x)
+            x = self.out_proj(x)
 
-        x = x.permute(0, 2, 1).unsqueeze(2).contiguous()
-        return x
+            x = x.permute(0, 2, 1).unsqueeze(2).contiguous()
+            return x, self.out_proj_align(self.ln_align(align_x))
+        else:
+            x = x[:, -seq_len:]
+            x = self.ln_post(x)
+            x = self.out_proj(x)
+
+            x = x.permute(0, 2, 1).unsqueeze(2).contiguous()
+            return x
     
     def _forward_policy(self, latent_feats, attn_padding_mask):
         batch_size = latent_feats.shape[0]
@@ -1489,7 +1653,36 @@ class QuadTokSelctor(nn.Module):
 
 
     def forward(self, latent_feats, tree_structure=None, policy_output=None):
-        if self.train_policy:
-            return self._forward_policy(latent_feats, policy_output)
-        else:
-            return self._forward_reconstruction(latent_feats, tree_structure)
+        return self._forward_reconstruction(latent_feats, tree_structure)
+
+class BoxNerfEmbedder(nn.Module):
+    def __init__(self, in_channels, hidden_size_input, max_freqs=8, num_coords=4):
+        super().__init__()
+        self.max_freqs = max_freqs
+        self.num_coords = num_coords
+        self.freq_dim = num_coords * max_freqs * 2 
+        
+        self.embedder = nn.Sequential(
+            nn.Linear(in_channels + self.freq_dim, hidden_size_input, bias=True),
+        )
+
+    def compute_fourier_features(self, boxes):
+        device = boxes.device
+        dtype = boxes.dtype
+        
+        freqs = torch.linspace(1.0, self.max_freqs, self.max_freqs, device=device, dtype=dtype)
+        x = boxes.unsqueeze(-1) 
+        f = freqs.view(1, 1, 1, -1)
+        x_bands = x * f * torch.pi # (B, N, 4, max_freqs)
+
+        fourier_features = torch.cat([torch.sin(x_bands), torch.cos(x_bands)], dim=-1)
+        fourier_features = fourier_features.view(boxes.shape[0], boxes.shape[1], -1)
+        
+        return fourier_features
+
+    def forward(self, x, boxes):
+        box_emb = self.compute_fourier_features(boxes)
+     
+        x_input = torch.cat([x, box_emb], dim=-1)
+        out = self.embedder(x_input)
+        return out

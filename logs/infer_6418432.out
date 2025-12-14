@@ -1,0 +1,925 @@
+/var/spool/slurmd/job6418432/slurm_script: line 10: /mnt/petrelfs/jianglihan/miniforge3/bin/activate: No such file or directory
+Master IP: 127.0.0.1
+Master Port: 29500
+Command to run:
+accelerate launch   --num_processes=8   --num_machines=1   --machine_rank=0   --main_process_ip=127.0.0.1   --main_process_port=29500   --mixed_precision=bf16   scripts/inference_generator.py   --config checkpoints/generator/mar_quadtree_fixtree/config.yaml   --num_samples 50000   --batch_size 32   --guidance_scale 1.0   --guidance_decay constant
+The following values were not passed to `accelerate launch` and had defaults used instead:
+		More than one GPU was found, enabling multi-GPU training.
+		If this was unintended please pass in `--num_processes=1`.
+	`--dynamo_backend` was set to a value of `'no'`
+To avoid this warning pass in values for each of the problematic parameters or run `accelerate config`.
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flashattention mode is flash
+
+attention mode is flash
+attention mode is flash
+Detected kernel version 3.10.0, which is below the recommended minimum of 5.5.0; this can cause the process to hang. It is recommended to upgrade the kernel to the minimum version or higher.
+[11/28 12:02:22 Inference Generation]: Loading model model...
+[11/28 12:02:22 Inference Generation]: Using the latest checkpoint: checkpoints/generator/mar_quadtree_fixtree/checkpoint-140000/ema_model/pytorch_model.bin
+[11/28 12:02:28 Inference Generation]: Creating model.
+<All keys matched successfully>
+<All keys matched successfully>
+<All keys matched successfully>
+<All keys matched successfully>
+<All keys matched successfully>
+[11/28 12:02:39 Inference Generation]: Working on device: cuda:0
+<All keys matched successfully>
+<All keys matched successfully>
+SH-IDCA1404-10-140-54-11:110726:110726 [0] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110726:110726 [0] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110726:110726 [0] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-11:110726:110726 [0] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-11:110726:110726 [0] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-11:110726:110726 [0] NCCL INFO cudaDriverVersion 12000
+NCCL version 2.21.5+cuda11.0
+SH-IDCA1404-10-140-54-11:110733:110733 [6] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-11:110733:110733 [6] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110733:110733 [6] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110733:110733 [6] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-11:110733:110733 [6] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-11:110733:110733 [6] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-11:110732:110732 [5] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-11:110730:110730 [3] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-11:110728:110728 [2] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-11:110728:110728 [2] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110732:110732 [5] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110730:110730 [3] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110728:110728 [2] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110732:110732 [5] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110730:110730 [3] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110730:110730 [3] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-11:110730:110730 [3] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-11:110730:110730 [3] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-11:110728:110728 [2] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-11:110728:110728 [2] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-11:110728:110728 [2] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-11:110732:110732 [5] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-11:110732:110732 [5] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-11:110732:110732 [5] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-11:110732:110732 [5] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-11:110726:110726 [0] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:110731:110731 [4] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-11:110731:110731 [4] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110733:110733 [6] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:110731:110731 [4] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110730:110730 [3] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:110731:110731 [4] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-11:110731:110731 [4] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-11:110731:110731 [4] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110728:110728 [2] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:110727:110727 [1] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-11:110727:110727 [1] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:110727:110727 [1] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:110727:110727 [1] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-11:110727:110727 [1] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-11:110727:110727 [1] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-11:110731:110731 [4] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-11:110727:110727 [1] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Using network IB
+<All keys matched successfully>
+SH-IDCA1404-10-140-54-11:110734:110734 [7] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-11:110734:110734 [7] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110734:110734 [7] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110734:110734 [7] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-11:110734:110734 [7] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-11:110734:110734 [7] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-11:110734:110734 [7] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO ncclCommInitRank comm 0x5618dfc0 rank 2 nranks 8 cudaDev 2 nvmlDev 2 busId 6b000 commId 0xb9ba56602de76fe7 - Init START
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO ncclCommInitRank comm 0xb7988e0 rank 3 nranks 8 cudaDev 3 nvmlDev 3 busId 71000 commId 0xb9ba56602de76fe7 - Init START
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO ncclCommInitRank comm 0xa92f9c0 rank 7 nranks 8 cudaDev 7 nvmlDev 7 busId d7000 commId 0xb9ba56602de76fe7 - Init START
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO ncclCommInitRank comm 0xa6c1440 rank 1 nranks 8 cudaDev 1 nvmlDev 1 busId 56000 commId 0xb9ba56602de76fe7 - Init START
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO ncclCommInitRank comm 0xb195100 rank 0 nranks 8 cudaDev 0 nvmlDev 0 busId 51000 commId 0xb9ba56602de76fe7 - Init START
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO ncclCommInitRank comm 0xc25e8d0 rank 6 nranks 8 cudaDev 6 nvmlDev 6 busId d4000 commId 0xb9ba56602de76fe7 - Init START
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO ncclCommInitRank comm 0xb70a4e0 rank 5 nranks 8 cudaDev 5 nvmlDev 5 busId a1000 commId 0xb9ba56602de76fe7 - Init START
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO ncclCommInitRank comm 0xc0b6150 rank 4 nranks 8 cudaDev 4 nvmlDev 4 busId 9d000 commId 0xb9ba56602de76fe7 - Init START
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Setting affinity for GPU 1 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Setting affinity for GPU 0 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Setting affinity for GPU 3 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Setting affinity for GPU 5 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Setting affinity for GPU 6 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Setting affinity for GPU 4 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Setting affinity for GPU 2 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Setting affinity for GPU 7 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO comm 0xa92f9c0 rank 7 nRanks 8 nNodes 1 localRanks 8 localRank 7 MNNVL 0
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO comm 0xb7988e0 rank 3 nRanks 8 nNodes 1 localRanks 8 localRank 3 MNNVL 0
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO comm 0x5618dfc0 rank 2 nRanks 8 nNodes 1 localRanks 8 localRank 2 MNNVL 0
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO comm 0xb70a4e0 rank 5 nRanks 8 nNodes 1 localRanks 8 localRank 5 MNNVL 0
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO comm 0xb195100 rank 0 nRanks 8 nNodes 1 localRanks 8 localRank 0 MNNVL 0
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO comm 0xa6c1440 rank 1 nRanks 8 nNodes 1 localRanks 8 localRank 1 MNNVL 0
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO comm 0xc25e8d0 rank 6 nRanks 8 nNodes 1 localRanks 8 localRank 6 MNNVL 0
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO comm 0xc0b6150 rank 4 nRanks 8 nNodes 1 localRanks 8 localRank 4 MNNVL 0
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 00/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 01/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 02/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Trees [0] -1/-1/-1->7->6 [1] -1/-1/-1->7->6 [2] -1/-1/-1->7->6 [3] -1/-1/-1->7->6 [4] -1/-1/-1->7->6 [5] -1/-1/-1->7->6 [6] -1/-1/-1->7->6 [7] -1/-1/-1->7->6 [8] -1/-1/-1->7->6 [9] -1/-1/-1->7->6 [10] -1/-1/-1->7->6 [11] -1/-1/-1->7->6 [12] -1/-1/-1->7->6 [13] -1/-1/-1->7->6 [14] -1/-1/-1->7->6 [15] -1/-1/-1->7->6 [16] -1/-1/-1->7->6 [17] -1/-1/-1->7->6 [18] -1/-1/-1->7->6 [19] -1/-1/-1->7->6 [20] -1/-1/-1->7->6 [21] -1/-1/-1->7->6 [22] -1/-1/-1->7->6 [23] -1/-1/-1->7->6
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 03/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 04/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO P2P Chunksize set to 524288
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 05/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Trees [0] 3/-1/-1->2->1 [1] 3/-1/-1->2->1 [2] 3/-1/-1->2->1 [3] 3/-1/-1->2->1 [4] 3/-1/-1->2->1 [5] 3/-1/-1->2->1 [6] 3/-1/-1->2->1 [7] 3/-1/-1->2->1 [8] 3/-1/-1->2->1 [9] 3/-1/-1->2->1 [10] 3/-1/-1->2->1 [11] 3/-1/-1->2->1 [12] 3/-1/-1->2->1 [13] 3/-1/-1->2->1 [14] 3/-1/-1->2->1 [15] 3/-1/-1->2->1 [16] 3/-1/-1->2->1 [17] 3/-1/-1->2->1 [18] 3/-1/-1->2->1 [19] 3/-1/-1->2->1 [20] 3/-1/-1->2->1 [21] 3/-1/-1->2->1 [22] 3/-1/-1->2->1 [23] 3/-1/-1->2->1
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Trees [0] 4/-1/-1->3->2 [1] 4/-1/-1->3->2 [2] 4/-1/-1->3->2 [3] 4/-1/-1->3->2 [4] 4/-1/-1->3->2 [5] 4/-1/-1->3->2 [6] 4/-1/-1->3->2 [7] 4/-1/-1->3->2 [8] 4/-1/-1->3->2 [9] 4/-1/-1->3->2 [10] 4/-1/-1->3->2 [11] 4/-1/-1->3->2 [12] 4/-1/-1->3->2 [13] 4/-1/-1->3->2 [14] 4/-1/-1->3->2 [15] 4/-1/-1->3->2 [16] 4/-1/-1->3->2 [17] 4/-1/-1->3->2 [18] 4/-1/-1->3->2 [19] 4/-1/-1->3->2 [20] 4/-1/-1->3->2 [21] 4/-1/-1->3->2 [22] 4/-1/-1->3->2 [23] 4/-1/-1->3->2
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Trees [0] 6/-1/-1->5->4 [1] 6/-1/-1->5->4 [2] 6/-1/-1->5->4 [3] 6/-1/-1->5->4 [4] 6/-1/-1->5->4 [5] 6/-1/-1->5->4 [6] 6/-1/-1->5->4 [7] 6/-1/-1->5->4 [8] 6/-1/-1->5->4 [9] 6/-1/-1->5->4 [10] 6/-1/-1->5->4 [11] 6/-1/-1->5->4 [12] 6/-1/-1->5->4 [13] 6/-1/-1->5->4 [14] 6/-1/-1->5->4 [15] 6/-1/-1->5->4 [16] 6/-1/-1->5->4 [17] 6/-1/-1->5->4 [18] 6/-1/-1->5->4 [19] 6/-1/-1->5->4 [20] 6/-1/-1->5->4 [21] 6/-1/-1->5->4 [22] 6/-1/-1->5->4 [23] 6/-1/-1->5->4
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 06/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO P2P Chunksize set to 524288
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Trees [0] 2/-1/-1->1->0 [1] 2/-1/-1->1->0 [2] 2/-1/-1->1->0 [3] 2/-1/-1->1->0 [4] 2/-1/-1->1->0 [5] 2/-1/-1->1->0 [6] 2/-1/-1->1->0 [7] 2/-1/-1->1->0 [8] 2/-1/-1->1->0 [9] 2/-1/-1->1->0 [10] 2/-1/-1->1->0 [11] 2/-1/-1->1->0 [12] 2/-1/-1->1->0 [13] 2/-1/-1->1->0 [14] 2/-1/-1->1->0 [15] 2/-1/-1->1->0 [16] 2/-1/-1->1->0 [17] 2/-1/-1->1->0 [18] 2/-1/-1->1->0 [19] 2/-1/-1->1->0 [20] 2/-1/-1->1->0 [21] 2/-1/-1->1->0 [22] 2/-1/-1->1->0 [23] 2/-1/-1->1->0
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO P2P Chunksize set to 524288
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 07/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO P2P Chunksize set to 524288
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 08/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO P2P Chunksize set to 524288
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 09/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 10/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 11/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 12/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 13/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 14/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 15/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 16/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 17/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Trees [0] 5/-1/-1->4->3 [1] 5/-1/-1->4->3 [2] 5/-1/-1->4->3 [3] 5/-1/-1->4->3 [4] 5/-1/-1->4->3 [5] 5/-1/-1->4->3 [6] 5/-1/-1->4->3 [7] 5/-1/-1->4->3 [8] 5/-1/-1->4->3 [9] 5/-1/-1->4->3 [10] 5/-1/-1->4->3 [11] 5/-1/-1->4->3 [12] 5/-1/-1->4->3 [13] 5/-1/-1->4->3 [14] 5/-1/-1->4->3 [15] 5/-1/-1->4->3 [16] 5/-1/-1->4->3 [17] 5/-1/-1->4->3 [18] 5/-1/-1->4->3 [19] 5/-1/-1->4->3 [20] 5/-1/-1->4->3 [21] 5/-1/-1->4->3 [22] 5/-1/-1->4->3 [23] 5/-1/-1->4->3
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 18/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 19/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 20/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO P2P Chunksize set to 524288
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 21/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 22/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Trees [0] 7/-1/-1->6->5 [1] 7/-1/-1->6->5 [2] 7/-1/-1->6->5 [3] 7/-1/-1->6->5 [4] 7/-1/-1->6->5 [5] 7/-1/-1->6->5 [6] 7/-1/-1->6->5 [7] 7/-1/-1->6->5 [8] 7/-1/-1->6->5 [9] 7/-1/-1->6->5 [10] 7/-1/-1->6->5 [11] 7/-1/-1->6->5 [12] 7/-1/-1->6->5 [13] 7/-1/-1->6->5 [14] 7/-1/-1->6->5 [15] 7/-1/-1->6->5 [16] 7/-1/-1->6->5 [17] 7/-1/-1->6->5 [18] 7/-1/-1->6->5 [19] 7/-1/-1->6->5 [20] 7/-1/-1->6->5 [21] 7/-1/-1->6->5 [22] 7/-1/-1->6->5 [23] 7/-1/-1->6->5
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 23/24 :    0   1   2   3   4   5   6   7
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO P2P Chunksize set to 524288
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Trees [0] 1/-1/-1->0->-1 [1] 1/-1/-1->0->-1 [2] 1/-1/-1->0->-1 [3] 1/-1/-1->0->-1 [4] 1/-1/-1->0->-1 [5] 1/-1/-1->0->-1 [6] 1/-1/-1->0->-1 [7] 1/-1/-1->0->-1 [8] 1/-1/-1->0->-1 [9] 1/-1/-1->0->-1 [10] 1/-1/-1->0->-1 [11] 1/-1/-1->0->-1 [12] 1/-1/-1->0->-1 [13] 1/-1/-1->0->-1 [14] 1/-1/-1->0->-1 [15] 1/-1/-1->0->-1 [16] 1/-1/-1->0->-1 [17] 1/-1/-1->0->-1 [18] 1/-1/-1->0->-1 [19] 1/-1/-1->0->-1 [20] 1/-1/-1->0->-1 [21] 1/-1/-1->0->-1 [22] 1/-1/-1->0->-1 [23] 1/-1/-1->0->-1
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO P2P Chunksize set to 524288
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 00/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 01/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 00/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 00/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 02/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 01/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 00/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 01/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 03/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 00/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 02/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 02/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 01/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 04/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 01/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 03/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 03/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 02/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 05/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 02/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 04/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 04/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 06/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 03/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 03/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 05/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 05/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 07/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 04/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 04/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 06/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 00/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 08/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 06/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 05/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 05/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 07/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 01/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 09/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 07/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 06/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 06/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 08/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 02/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 10/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 08/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 07/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 07/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 09/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 03/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 11/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 09/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 08/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 08/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 10/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 04/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 12/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 10/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 09/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 09/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 11/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 05/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 13/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 11/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 10/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 10/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 12/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 06/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 14/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 12/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 11/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 11/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 13/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 07/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 15/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 13/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 12/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 12/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 14/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 16/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 08/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 14/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 13/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 13/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 15/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 17/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 09/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 15/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 00/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 14/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 14/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 16/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 18/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 10/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 16/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 01/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 15/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 17/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 15/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 11/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 19/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 17/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 02/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 18/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 20/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 16/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 12/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 16/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 18/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 03/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 21/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 19/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 17/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 13/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 17/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 19/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 04/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 22/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 20/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 18/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 14/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 18/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 20/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 05/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 23/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 21/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 19/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 15/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 19/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 21/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 06/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 22/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 20/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 16/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 20/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 22/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 07/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 23/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 21/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 17/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 23/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 08/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 21/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 00/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 22/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 18/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 09/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 22/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 01/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 23/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 19/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 10/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 02/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 23/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 20/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 11/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 03/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 21/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 12/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 04/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 22/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 13/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 05/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Channel 23/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 06/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 14/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 07/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 15/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 08/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 16/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 09/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 17/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 10/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 18/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 11/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 19/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 12/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 20/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 13/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 21/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 14/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 22/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 15/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 23/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 16/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 17/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 18/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 19/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 20/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 21/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 22/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 23/0 : 7[7] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 00/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 01/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 02/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 03/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 04/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 05/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 06/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 00/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 07/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 00/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 01/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 08/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 01/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 00/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 02/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 09/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 02/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 01/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 03/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 10/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 03/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 02/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 04/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 11/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 04/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 03/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 05/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 12/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 05/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 04/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 06/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 13/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 06/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 05/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 07/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 14/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 07/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 06/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 08/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 15/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 08/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 07/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 09/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 16/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 09/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 00/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 10/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 08/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 17/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 10/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 01/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 11/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 09/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 18/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 11/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 02/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 12/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 10/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 19/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 12/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 03/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 13/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 11/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 20/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 13/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 04/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 14/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 12/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 21/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 14/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 05/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 15/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 13/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 22/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 15/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 06/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 16/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 14/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Channel 23/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 16/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 07/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 17/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 15/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 17/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 00/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 08/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 00/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 18/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 16/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 18/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 01/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 09/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 01/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 19/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 17/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 19/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 02/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 10/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 02/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 20/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 18/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 20/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 03/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 11/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 03/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 21/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 19/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 21/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 04/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 12/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 04/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 22/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 22/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 20/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 05/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 13/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 05/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Channel 23/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Channel 23/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 21/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 06/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 14/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 06/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 22/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 07/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 15/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 07/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Channel 23/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 08/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 16/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 08/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 09/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 17/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 09/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 10/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 18/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 10/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 11/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 19/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 11/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 12/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 20/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 12/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 13/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 21/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 13/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 14/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 22/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 14/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Channel 23/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 15/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 15/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 16/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 16/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 17/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 17/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 18/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 18/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 19/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 19/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 20/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 20/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 21/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 21/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 22/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 22/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Channel 23/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Channel 23/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO 24 coll channels, 24 collnet channels, 0 nvls channels, 32 p2p channels, 32 p2p channels per peer
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO 24 coll channels, 24 collnet channels, 0 nvls channels, 32 p2p channels, 32 p2p channels per peer
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO 24 coll channels, 24 collnet channels, 0 nvls channels, 32 p2p channels, 32 p2p channels per peer
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO 24 coll channels, 24 collnet channels, 0 nvls channels, 32 p2p channels, 32 p2p channels per peer
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO 24 coll channels, 24 collnet channels, 0 nvls channels, 32 p2p channels, 32 p2p channels per peer
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO 24 coll channels, 24 collnet channels, 0 nvls channels, 32 p2p channels, 32 p2p channels per peer
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO 24 coll channels, 24 collnet channels, 0 nvls channels, 32 p2p channels, 32 p2p channels per peer
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO 24 coll channels, 24 collnet channels, 0 nvls channels, 32 p2p channels, 32 p2p channels per peer
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-11:110732:111400 [5] NCCL INFO ncclCommInitRank comm 0xb70a4e0 rank 5 nranks 8 cudaDev 5 nvmlDev 5 busId a1000 commId 0xb9ba56602de76fe7 - Init COMPLETE
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-11:110734:111414 [7] NCCL INFO ncclCommInitRank comm 0xa92f9c0 rank 7 nranks 8 cudaDev 7 nvmlDev 7 busId d7000 commId 0xb9ba56602de76fe7 - Init COMPLETE
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-11:110726:111402 [0] NCCL INFO ncclCommInitRank comm 0xb195100 rank 0 nranks 8 cudaDev 0 nvmlDev 0 busId 51000 commId 0xb9ba56602de76fe7 - Init COMPLETE
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-11:110730:111404 [3] NCCL INFO ncclCommInitRank comm 0xb7988e0 rank 3 nranks 8 cudaDev 3 nvmlDev 3 busId 71000 commId 0xb9ba56602de76fe7 - Init COMPLETE
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-11:110731:111410 [4] NCCL INFO ncclCommInitRank comm 0xc0b6150 rank 4 nranks 8 cudaDev 4 nvmlDev 4 busId 9d000 commId 0xb9ba56602de76fe7 - Init COMPLETE
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-11:110733:111403 [6] NCCL INFO ncclCommInitRank comm 0xc25e8d0 rank 6 nranks 8 cudaDev 6 nvmlDev 6 busId d4000 commId 0xb9ba56602de76fe7 - Init COMPLETE
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-11:110727:111412 [1] NCCL INFO ncclCommInitRank comm 0xa6c1440 rank 1 nranks 8 cudaDev 1 nvmlDev 1 busId 56000 commId 0xb9ba56602de76fe7 - Init COMPLETE
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-11:110728:111405 [2] NCCL INFO ncclCommInitRank comm 0x5618dfc0 rank 2 nranks 8 cudaDev 2 nvmlDev 2 busId 6b000 commId 0xb9ba56602de76fe7 - Init COMPLETE
+[11/28 12:02:42 Inference Generation]: Output directory: checkpoints/generator/mar_quadtree_fixtree/inference_output/checkpoint-140000_cfg_1_decay_constant_num_50000
+[11/28 12:02:42 Inference Generation]: Total samples: 50000, World size: 8, Batch size: 32
+[11/28 12:02:42 Inference Generation]: Rank 0: Generating 6250 samples (indices 0 to 6249)
+[11/28 12:02:42 Inference Generation]: Starting generation: 196 batches, batch size: 32
+[11/28 12:02:42 Inference Generation]: Rank 0: Generating batch 1/196 (samples 0-31)
+[11/28 12:04:22 Inference Generation]: Rank 0: Saved batch 1/196 (32 images)
+[11/28 12:04:22 Inference Generation]: Rank 0: Generating batch 2/196 (samples 32-63)
+[11/28 12:06:03 Inference Generation]: Rank 0: Saved batch 2/196 (32 images)
+[11/28 12:06:04 Inference Generation]: Rank 0: Generating batch 3/196 (samples 64-95)
+[11/28 12:07:46 Inference Generation]: Rank 0: Saved batch 3/196 (32 images)
+[11/28 12:07:46 Inference Generation]: Rank 0: Generating batch 4/196 (samples 96-127)
+[11/28 12:09:28 Inference Generation]: Rank 0: Saved batch 4/196 (32 images)
+[11/28 12:09:28 Inference Generation]: Rank 0: Generating batch 5/196 (samples 128-159)
+[11/28 12:11:09 Inference Generation]: Rank 0: Saved batch 5/196 (32 images)
+[11/28 12:11:09 Inference Generation]: Rank 0: Generating batch 6/196 (samples 160-191)
+[11/28 12:12:51 Inference Generation]: Rank 0: Saved batch 6/196 (32 images)
+[11/28 12:12:51 Inference Generation]: Rank 0: Generating batch 7/196 (samples 192-223)
+[11/28 12:14:34 Inference Generation]: Rank 0: Saved batch 7/196 (32 images)
+[11/28 12:14:34 Inference Generation]: Rank 0: Generating batch 8/196 (samples 224-255)
+[11/28 12:16:16 Inference Generation]: Rank 0: Saved batch 8/196 (32 images)
+[11/28 12:16:16 Inference Generation]: Rank 0: Generating batch 9/196 (samples 256-287)
+[11/28 12:17:58 Inference Generation]: Rank 0: Saved batch 9/196 (32 images)
+[11/28 12:17:58 Inference Generation]: Rank 0: Generating batch 10/196 (samples 288-319)
+[11/28 12:19:39 Inference Generation]: Rank 0: Saved batch 10/196 (32 images)
+[11/28 12:19:39 Inference Generation]: Rank 0: Generating batch 11/196 (samples 320-351)
+[11/28 12:21:21 Inference Generation]: Rank 0: Saved batch 11/196 (32 images)
+[11/28 12:21:21 Inference Generation]: Rank 0: Generating batch 12/196 (samples 352-383)
+[11/28 12:23:02 Inference Generation]: Rank 0: Saved batch 12/196 (32 images)
+[11/28 12:23:02 Inference Generation]: Rank 0: Generating batch 13/196 (samples 384-415)
+[11/28 12:24:43 Inference Generation]: Rank 0: Saved batch 13/196 (32 images)
+[11/28 12:24:43 Inference Generation]: Rank 0: Generating batch 14/196 (samples 416-447)
+[11/28 12:26:24 Inference Generation]: Rank 0: Saved batch 14/196 (32 images)
+[11/28 12:26:24 Inference Generation]: Rank 0: Generating batch 15/196 (samples 448-479)
+[11/28 12:28:06 Inference Generation]: Rank 0: Saved batch 15/196 (32 images)
+[11/28 12:28:06 Inference Generation]: Rank 0: Generating batch 16/196 (samples 480-511)
+[11/28 12:29:48 Inference Generation]: Rank 0: Saved batch 16/196 (32 images)
+[11/28 12:29:48 Inference Generation]: Rank 0: Generating batch 17/196 (samples 512-543)
+[11/28 12:31:29 Inference Generation]: Rank 0: Saved batch 17/196 (32 images)
+[11/28 12:31:29 Inference Generation]: Rank 0: Generating batch 18/196 (samples 544-575)
+[11/28 12:33:10 Inference Generation]: Rank 0: Saved batch 18/196 (32 images)
+[11/28 12:33:10 Inference Generation]: Rank 0: Generating batch 19/196 (samples 576-607)
+[11/28 12:34:52 Inference Generation]: Rank 0: Saved batch 19/196 (32 images)
+[11/28 12:34:52 Inference Generation]: Rank 0: Generating batch 20/196 (samples 608-639)
+[11/28 12:36:34 Inference Generation]: Rank 0: Saved batch 20/196 (32 images)
+[11/28 12:36:34 Inference Generation]: Rank 0: Generating batch 21/196 (samples 640-671)
+[11/28 12:38:15 Inference Generation]: Rank 0: Saved batch 21/196 (32 images)
+[11/28 12:38:15 Inference Generation]: Rank 0: Generating batch 22/196 (samples 672-703)
+[11/28 12:39:57 Inference Generation]: Rank 0: Saved batch 22/196 (32 images)
+[11/28 12:39:57 Inference Generation]: Rank 0: Generating batch 23/196 (samples 704-735)
+[11/28 12:41:39 Inference Generation]: Rank 0: Saved batch 23/196 (32 images)
+[11/28 12:41:39 Inference Generation]: Rank 0: Generating batch 24/196 (samples 736-767)
+[11/28 12:43:20 Inference Generation]: Rank 0: Saved batch 24/196 (32 images)
+[11/28 12:43:20 Inference Generation]: Rank 0: Generating batch 25/196 (samples 768-799)
+[11/28 12:45:01 Inference Generation]: Rank 0: Saved batch 25/196 (32 images)
+[11/28 12:45:01 Inference Generation]: Rank 0: Generating batch 26/196 (samples 800-831)
+[11/28 12:46:43 Inference Generation]: Rank 0: Saved batch 26/196 (32 images)
+[11/28 12:46:43 Inference Generation]: Rank 0: Generating batch 27/196 (samples 832-863)
+[11/28 12:48:24 Inference Generation]: Rank 0: Saved batch 27/196 (32 images)
+[11/28 12:48:24 Inference Generation]: Rank 0: Generating batch 28/196 (samples 864-895)
+[11/28 12:50:06 Inference Generation]: Rank 0: Saved batch 28/196 (32 images)
+[11/28 12:50:06 Inference Generation]: Rank 0: Generating batch 29/196 (samples 896-927)
+[11/28 12:51:47 Inference Generation]: Rank 0: Saved batch 29/196 (32 images)
+[11/28 12:51:47 Inference Generation]: Rank 0: Generating batch 30/196 (samples 928-959)
+[11/28 12:53:28 Inference Generation]: Rank 0: Saved batch 30/196 (32 images)
+[11/28 12:53:28 Inference Generation]: Rank 0: Generating batch 31/196 (samples 960-991)
+[11/28 12:55:10 Inference Generation]: Rank 0: Saved batch 31/196 (32 images)
+[11/28 12:55:10 Inference Generation]: Rank 0: Generating batch 32/196 (samples 992-1023)
+[11/28 12:56:52 Inference Generation]: Rank 0: Saved batch 32/196 (32 images)
+[11/28 12:56:52 Inference Generation]: Rank 0: Generating batch 33/196 (samples 1024-1055)
+[11/28 12:58:33 Inference Generation]: Rank 0: Saved batch 33/196 (32 images)
+[11/28 12:58:33 Inference Generation]: Rank 0: Generating batch 34/196 (samples 1056-1087)
+[11/28 13:00:15 Inference Generation]: Rank 0: Saved batch 34/196 (32 images)
+[11/28 13:00:15 Inference Generation]: Rank 0: Generating batch 35/196 (samples 1088-1119)
+[11/28 13:01:57 Inference Generation]: Rank 0: Saved batch 35/196 (32 images)
+[11/28 13:01:57 Inference Generation]: Rank 0: Generating batch 36/196 (samples 1120-1151)
+[11/28 13:03:39 Inference Generation]: Rank 0: Saved batch 36/196 (32 images)
+[11/28 13:03:39 Inference Generation]: Rank 0: Generating batch 37/196 (samples 1152-1183)
+[11/28 13:05:21 Inference Generation]: Rank 0: Saved batch 37/196 (32 images)
+[11/28 13:05:21 Inference Generation]: Rank 0: Generating batch 38/196 (samples 1184-1215)
+[11/28 13:07:03 Inference Generation]: Rank 0: Saved batch 38/196 (32 images)
+[11/28 13:07:03 Inference Generation]: Rank 0: Generating batch 39/196 (samples 1216-1247)
+[11/28 13:08:44 Inference Generation]: Rank 0: Saved batch 39/196 (32 images)
+[11/28 13:08:44 Inference Generation]: Rank 0: Generating batch 40/196 (samples 1248-1279)
+[11/28 13:10:30 Inference Generation]: Rank 0: Saved batch 40/196 (32 images)
+[11/28 13:10:30 Inference Generation]: Rank 0: Generating batch 41/196 (samples 1280-1311)
+[11/28 13:12:17 Inference Generation]: Rank 0: Saved batch 41/196 (32 images)
+[11/28 13:12:17 Inference Generation]: Rank 0: Generating batch 42/196 (samples 1312-1343)
+[11/28 13:14:04 Inference Generation]: Rank 0: Saved batch 42/196 (32 images)
+[11/28 13:14:04 Inference Generation]: Rank 0: Generating batch 43/196 (samples 1344-1375)
+[11/28 13:15:50 Inference Generation]: Rank 0: Saved batch 43/196 (32 images)
+[11/28 13:15:50 Inference Generation]: Rank 0: Generating batch 44/196 (samples 1376-1407)
+[11/28 13:17:38 Inference Generation]: Rank 0: Saved batch 44/196 (32 images)
+[11/28 13:17:38 Inference Generation]: Rank 0: Generating batch 45/196 (samples 1408-1439)
+[11/28 13:19:24 Inference Generation]: Rank 0: Saved batch 45/196 (32 images)
+[11/28 13:19:24 Inference Generation]: Rank 0: Generating batch 46/196 (samples 1440-1471)
+[11/28 13:21:10 Inference Generation]: Rank 0: Saved batch 46/196 (32 images)
+[11/28 13:21:10 Inference Generation]: Rank 0: Generating batch 47/196 (samples 1472-1503)
+[11/28 13:22:56 Inference Generation]: Rank 0: Saved batch 47/196 (32 images)
+[11/28 13:22:56 Inference Generation]: Rank 0: Generating batch 48/196 (samples 1504-1535)
+[11/28 13:24:43 Inference Generation]: Rank 0: Saved batch 48/196 (32 images)
+[11/28 13:24:43 Inference Generation]: Rank 0: Generating batch 49/196 (samples 1536-1567)
+[11/28 13:26:30 Inference Generation]: Rank 0: Saved batch 49/196 (32 images)
+[11/28 13:26:30 Inference Generation]: Rank 0: Generating batch 50/196 (samples 1568-1599)
+[11/28 13:28:16 Inference Generation]: Rank 0: Saved batch 50/196 (32 images)
+[11/28 13:28:16 Inference Generation]: Rank 0: Generating batch 51/196 (samples 1600-1631)
+[11/28 13:30:02 Inference Generation]: Rank 0: Saved batch 51/196 (32 images)
+[11/28 13:30:02 Inference Generation]: Rank 0: Generating batch 52/196 (samples 1632-1663)
+[11/28 13:31:49 Inference Generation]: Rank 0: Saved batch 52/196 (32 images)
+[11/28 13:31:49 Inference Generation]: Rank 0: Generating batch 53/196 (samples 1664-1695)
+[11/28 13:33:36 Inference Generation]: Rank 0: Saved batch 53/196 (32 images)
+[11/28 13:33:36 Inference Generation]: Rank 0: Generating batch 54/196 (samples 1696-1727)
+[11/28 13:35:23 Inference Generation]: Rank 0: Saved batch 54/196 (32 images)
+[11/28 13:35:23 Inference Generation]: Rank 0: Generating batch 55/196 (samples 1728-1759)
+[11/28 13:37:10 Inference Generation]: Rank 0: Saved batch 55/196 (32 images)
+[11/28 13:37:10 Inference Generation]: Rank 0: Generating batch 56/196 (samples 1760-1791)
+[11/28 13:38:56 Inference Generation]: Rank 0: Saved batch 56/196 (32 images)
+[11/28 13:38:56 Inference Generation]: Rank 0: Generating batch 57/196 (samples 1792-1823)
+[11/28 13:40:42 Inference Generation]: Rank 0: Saved batch 57/196 (32 images)
+[11/28 13:40:42 Inference Generation]: Rank 0: Generating batch 58/196 (samples 1824-1855)
+[11/28 13:42:29 Inference Generation]: Rank 0: Saved batch 58/196 (32 images)
+[11/28 13:42:29 Inference Generation]: Rank 0: Generating batch 59/196 (samples 1856-1887)
+[11/28 13:44:15 Inference Generation]: Rank 0: Saved batch 59/196 (32 images)
+[11/28 13:44:15 Inference Generation]: Rank 0: Generating batch 60/196 (samples 1888-1919)
+[11/28 13:46:02 Inference Generation]: Rank 0: Saved batch 60/196 (32 images)
+[11/28 13:46:02 Inference Generation]: Rank 0: Generating batch 61/196 (samples 1920-1951)
+[11/28 13:47:50 Inference Generation]: Rank 0: Saved batch 61/196 (32 images)
+[11/28 13:47:50 Inference Generation]: Rank 0: Generating batch 62/196 (samples 1952-1983)
+[11/28 13:49:36 Inference Generation]: Rank 0: Saved batch 62/196 (32 images)
+[11/28 13:49:36 Inference Generation]: Rank 0: Generating batch 63/196 (samples 1984-2015)
+[11/28 13:51:23 Inference Generation]: Rank 0: Saved batch 63/196 (32 images)
+[11/28 13:51:23 Inference Generation]: Rank 0: Generating batch 64/196 (samples 2016-2047)
+[11/28 13:53:10 Inference Generation]: Rank 0: Saved batch 64/196 (32 images)
+[11/28 13:53:10 Inference Generation]: Rank 0: Generating batch 65/196 (samples 2048-2079)
+[11/28 13:54:56 Inference Generation]: Rank 0: Saved batch 65/196 (32 images)
+[11/28 13:54:56 Inference Generation]: Rank 0: Generating batch 66/196 (samples 2080-2111)
+[11/28 13:56:43 Inference Generation]: Rank 0: Saved batch 66/196 (32 images)
+[11/28 13:56:43 Inference Generation]: Rank 0: Generating batch 67/196 (samples 2112-2143)
+[11/28 13:58:30 Inference Generation]: Rank 0: Saved batch 67/196 (32 images)
+[11/28 13:58:30 Inference Generation]: Rank 0: Generating batch 68/196 (samples 2144-2175)
+[11/28 14:00:17 Inference Generation]: Rank 0: Saved batch 68/196 (32 images)
+[11/28 14:00:17 Inference Generation]: Rank 0: Generating batch 69/196 (samples 2176-2207)
+[11/28 14:02:02 Inference Generation]: Rank 0: Saved batch 69/196 (32 images)
+[11/28 14:02:02 Inference Generation]: Rank 0: Generating batch 70/196 (samples 2208-2239)
+[11/28 14:03:50 Inference Generation]: Rank 0: Saved batch 70/196 (32 images)
+[11/28 14:03:50 Inference Generation]: Rank 0: Generating batch 71/196 (samples 2240-2271)
+[11/28 14:05:37 Inference Generation]: Rank 0: Saved batch 71/196 (32 images)
+[11/28 14:05:37 Inference Generation]: Rank 0: Generating batch 72/196 (samples 2272-2303)
+[11/28 14:07:24 Inference Generation]: Rank 0: Saved batch 72/196 (32 images)
+[11/28 14:07:24 Inference Generation]: Rank 0: Generating batch 73/196 (samples 2304-2335)
+[11/28 14:09:11 Inference Generation]: Rank 0: Saved batch 73/196 (32 images)
+[11/28 14:09:11 Inference Generation]: Rank 0: Generating batch 74/196 (samples 2336-2367)
+[11/28 14:10:58 Inference Generation]: Rank 0: Saved batch 74/196 (32 images)
+[11/28 14:10:58 Inference Generation]: Rank 0: Generating batch 75/196 (samples 2368-2399)
+[11/28 14:12:45 Inference Generation]: Rank 0: Saved batch 75/196 (32 images)
+[11/28 14:12:45 Inference Generation]: Rank 0: Generating batch 76/196 (samples 2400-2431)
+[11/28 14:14:32 Inference Generation]: Rank 0: Saved batch 76/196 (32 images)
+[11/28 14:14:32 Inference Generation]: Rank 0: Generating batch 77/196 (samples 2432-2463)
+[11/28 14:16:19 Inference Generation]: Rank 0: Saved batch 77/196 (32 images)
+[11/28 14:16:19 Inference Generation]: Rank 0: Generating batch 78/196 (samples 2464-2495)
+[11/28 14:18:06 Inference Generation]: Rank 0: Saved batch 78/196 (32 images)
+[11/28 14:18:06 Inference Generation]: Rank 0: Generating batch 79/196 (samples 2496-2527)
+[11/28 14:19:52 Inference Generation]: Rank 0: Saved batch 79/196 (32 images)
+[11/28 14:19:52 Inference Generation]: Rank 0: Generating batch 80/196 (samples 2528-2559)
+[11/28 14:21:39 Inference Generation]: Rank 0: Saved batch 80/196 (32 images)
+[11/28 14:21:39 Inference Generation]: Rank 0: Generating batch 81/196 (samples 2560-2591)
+[11/28 14:23:25 Inference Generation]: Rank 0: Saved batch 81/196 (32 images)
+[11/28 14:23:25 Inference Generation]: Rank 0: Generating batch 82/196 (samples 2592-2623)
+[11/28 14:25:11 Inference Generation]: Rank 0: Saved batch 82/196 (32 images)
+[11/28 14:25:11 Inference Generation]: Rank 0: Generating batch 83/196 (samples 2624-2655)
+[11/28 14:26:58 Inference Generation]: Rank 0: Saved batch 83/196 (32 images)
+[11/28 14:26:58 Inference Generation]: Rank 0: Generating batch 84/196 (samples 2656-2687)
+[11/28 14:28:46 Inference Generation]: Rank 0: Saved batch 84/196 (32 images)
+[11/28 14:28:46 Inference Generation]: Rank 0: Generating batch 85/196 (samples 2688-2719)
+[11/28 14:30:32 Inference Generation]: Rank 0: Saved batch 85/196 (32 images)
+[11/28 14:30:33 Inference Generation]: Rank 0: Generating batch 86/196 (samples 2720-2751)
+[11/28 14:32:20 Inference Generation]: Rank 0: Saved batch 86/196 (32 images)
+[11/28 14:32:20 Inference Generation]: Rank 0: Generating batch 87/196 (samples 2752-2783)
+[11/28 14:34:07 Inference Generation]: Rank 0: Saved batch 87/196 (32 images)
+[11/28 14:34:07 Inference Generation]: Rank 0: Generating batch 88/196 (samples 2784-2815)
+[11/28 14:35:54 Inference Generation]: Rank 0: Saved batch 88/196 (32 images)
+[11/28 14:35:54 Inference Generation]: Rank 0: Generating batch 89/196 (samples 2816-2847)
+[11/28 14:37:41 Inference Generation]: Rank 0: Saved batch 89/196 (32 images)
+[11/28 14:37:41 Inference Generation]: Rank 0: Generating batch 90/196 (samples 2848-2879)
+[11/28 14:39:27 Inference Generation]: Rank 0: Saved batch 90/196 (32 images)
+[11/28 14:39:27 Inference Generation]: Rank 0: Generating batch 91/196 (samples 2880-2911)
+[11/28 14:41:14 Inference Generation]: Rank 0: Saved batch 91/196 (32 images)
+[11/28 14:41:14 Inference Generation]: Rank 0: Generating batch 92/196 (samples 2912-2943)
+[11/28 14:43:01 Inference Generation]: Rank 0: Saved batch 92/196 (32 images)
+[11/28 14:43:01 Inference Generation]: Rank 0: Generating batch 93/196 (samples 2944-2975)
+[11/28 14:44:47 Inference Generation]: Rank 0: Saved batch 93/196 (32 images)
+[11/28 14:44:47 Inference Generation]: Rank 0: Generating batch 94/196 (samples 2976-3007)
+[11/28 14:46:34 Inference Generation]: Rank 0: Saved batch 94/196 (32 images)
+[11/28 14:46:34 Inference Generation]: Rank 0: Generating batch 95/196 (samples 3008-3039)
+[11/28 14:48:21 Inference Generation]: Rank 0: Saved batch 95/196 (32 images)
+[11/28 14:48:21 Inference Generation]: Rank 0: Generating batch 96/196 (samples 3040-3071)
+[11/28 14:50:08 Inference Generation]: Rank 0: Saved batch 96/196 (32 images)
+[11/28 14:50:08 Inference Generation]: Rank 0: Generating batch 97/196 (samples 3072-3103)
+[11/28 14:51:55 Inference Generation]: Rank 0: Saved batch 97/196 (32 images)
+[11/28 14:51:55 Inference Generation]: Rank 0: Generating batch 98/196 (samples 3104-3135)
+[11/28 14:53:43 Inference Generation]: Rank 0: Saved batch 98/196 (32 images)
+[11/28 14:53:43 Inference Generation]: Rank 0: Generating batch 99/196 (samples 3136-3167)
+[11/28 14:55:29 Inference Generation]: Rank 0: Saved batch 99/196 (32 images)
+[11/28 14:55:29 Inference Generation]: Rank 0: Generating batch 100/196 (samples 3168-3199)
+[11/28 14:57:17 Inference Generation]: Rank 0: Saved batch 100/196 (32 images)
+[11/28 14:57:17 Inference Generation]: Rank 0: Generating batch 101/196 (samples 3200-3231)
+[11/28 14:59:03 Inference Generation]: Rank 0: Saved batch 101/196 (32 images)
+[11/28 14:59:03 Inference Generation]: Rank 0: Generating batch 102/196 (samples 3232-3263)
+[11/28 15:00:50 Inference Generation]: Rank 0: Saved batch 102/196 (32 images)
+[11/28 15:00:50 Inference Generation]: Rank 0: Generating batch 103/196 (samples 3264-3295)
+[11/28 15:02:37 Inference Generation]: Rank 0: Saved batch 103/196 (32 images)
+[11/28 15:02:37 Inference Generation]: Rank 0: Generating batch 104/196 (samples 3296-3327)
+[11/28 15:04:24 Inference Generation]: Rank 0: Saved batch 104/196 (32 images)
+[11/28 15:04:24 Inference Generation]: Rank 0: Generating batch 105/196 (samples 3328-3359)
+[11/28 15:06:10 Inference Generation]: Rank 0: Saved batch 105/196 (32 images)
+[11/28 15:06:10 Inference Generation]: Rank 0: Generating batch 106/196 (samples 3360-3391)
+[11/28 15:07:56 Inference Generation]: Rank 0: Saved batch 106/196 (32 images)
+[11/28 15:07:56 Inference Generation]: Rank 0: Generating batch 107/196 (samples 3392-3423)
+[11/28 15:09:42 Inference Generation]: Rank 0: Saved batch 107/196 (32 images)
+[11/28 15:09:42 Inference Generation]: Rank 0: Generating batch 108/196 (samples 3424-3455)
+[11/28 15:11:30 Inference Generation]: Rank 0: Saved batch 108/196 (32 images)
+[11/28 15:11:30 Inference Generation]: Rank 0: Generating batch 109/196 (samples 3456-3487)
+[11/28 15:13:17 Inference Generation]: Rank 0: Saved batch 109/196 (32 images)
+[11/28 15:13:17 Inference Generation]: Rank 0: Generating batch 110/196 (samples 3488-3519)
+[11/28 15:15:03 Inference Generation]: Rank 0: Saved batch 110/196 (32 images)
+[11/28 15:15:03 Inference Generation]: Rank 0: Generating batch 111/196 (samples 3520-3551)
+[11/28 15:16:49 Inference Generation]: Rank 0: Saved batch 111/196 (32 images)
+[11/28 15:16:49 Inference Generation]: Rank 0: Generating batch 112/196 (samples 3552-3583)
+[11/28 15:18:36 Inference Generation]: Rank 0: Saved batch 112/196 (32 images)
+[11/28 15:18:36 Inference Generation]: Rank 0: Generating batch 113/196 (samples 3584-3615)
+[11/28 15:20:22 Inference Generation]: Rank 0: Saved batch 113/196 (32 images)
+[11/28 15:20:22 Inference Generation]: Rank 0: Generating batch 114/196 (samples 3616-3647)
+[11/28 15:22:08 Inference Generation]: Rank 0: Saved batch 114/196 (32 images)
+[11/28 15:22:08 Inference Generation]: Rank 0: Generating batch 115/196 (samples 3648-3679)
+[11/28 15:23:54 Inference Generation]: Rank 0: Saved batch 115/196 (32 images)
+[11/28 15:23:54 Inference Generation]: Rank 0: Generating batch 116/196 (samples 3680-3711)
+[11/28 15:25:41 Inference Generation]: Rank 0: Saved batch 116/196 (32 images)
+[11/28 15:25:41 Inference Generation]: Rank 0: Generating batch 117/196 (samples 3712-3743)
+[11/28 15:27:28 Inference Generation]: Rank 0: Saved batch 117/196 (32 images)
+[11/28 15:27:28 Inference Generation]: Rank 0: Generating batch 118/196 (samples 3744-3775)
+[11/28 15:29:15 Inference Generation]: Rank 0: Saved batch 118/196 (32 images)
+[11/28 15:29:15 Inference Generation]: Rank 0: Generating batch 119/196 (samples 3776-3807)
+[11/28 15:31:02 Inference Generation]: Rank 0: Saved batch 119/196 (32 images)
+[11/28 15:31:02 Inference Generation]: Rank 0: Generating batch 120/196 (samples 3808-3839)
+[11/28 15:32:49 Inference Generation]: Rank 0: Saved batch 120/196 (32 images)
+[11/28 15:32:49 Inference Generation]: Rank 0: Generating batch 121/196 (samples 3840-3871)
+[11/28 15:34:36 Inference Generation]: Rank 0: Saved batch 121/196 (32 images)
+[11/28 15:34:36 Inference Generation]: Rank 0: Generating batch 122/196 (samples 3872-3903)
+[11/28 15:36:23 Inference Generation]: Rank 0: Saved batch 122/196 (32 images)
+[11/28 15:36:23 Inference Generation]: Rank 0: Generating batch 123/196 (samples 3904-3935)
+[11/28 15:38:10 Inference Generation]: Rank 0: Saved batch 123/196 (32 images)
+[11/28 15:38:10 Inference Generation]: Rank 0: Generating batch 124/196 (samples 3936-3967)
+[11/28 15:39:57 Inference Generation]: Rank 0: Saved batch 124/196 (32 images)
+[11/28 15:39:57 Inference Generation]: Rank 0: Generating batch 125/196 (samples 3968-3999)
+[11/28 15:41:44 Inference Generation]: Rank 0: Saved batch 125/196 (32 images)
+[11/28 15:41:44 Inference Generation]: Rank 0: Generating batch 126/196 (samples 4000-4031)
+[11/28 15:43:30 Inference Generation]: Rank 0: Saved batch 126/196 (32 images)
+[11/28 15:43:30 Inference Generation]: Rank 0: Generating batch 127/196 (samples 4032-4063)
+[11/28 15:45:18 Inference Generation]: Rank 0: Saved batch 127/196 (32 images)
+[11/28 15:45:18 Inference Generation]: Rank 0: Generating batch 128/196 (samples 4064-4095)
+[11/28 15:47:05 Inference Generation]: Rank 0: Saved batch 128/196 (32 images)
+[11/28 15:47:05 Inference Generation]: Rank 0: Generating batch 129/196 (samples 4096-4127)
+[11/28 15:48:52 Inference Generation]: Rank 0: Saved batch 129/196 (32 images)
+[11/28 15:48:52 Inference Generation]: Rank 0: Generating batch 130/196 (samples 4128-4159)
+[11/28 15:50:39 Inference Generation]: Rank 0: Saved batch 130/196 (32 images)
+[11/28 15:50:39 Inference Generation]: Rank 0: Generating batch 131/196 (samples 4160-4191)
+[11/28 15:52:26 Inference Generation]: Rank 0: Saved batch 131/196 (32 images)
+[11/28 15:52:26 Inference Generation]: Rank 0: Generating batch 132/196 (samples 4192-4223)
+[11/28 15:54:12 Inference Generation]: Rank 0: Saved batch 132/196 (32 images)
+[11/28 15:54:12 Inference Generation]: Rank 0: Generating batch 133/196 (samples 4224-4255)
+[11/28 15:55:58 Inference Generation]: Rank 0: Saved batch 133/196 (32 images)
+[11/28 15:55:58 Inference Generation]: Rank 0: Generating batch 134/196 (samples 4256-4287)
+[11/28 15:57:44 Inference Generation]: Rank 0: Saved batch 134/196 (32 images)
+[11/28 15:57:44 Inference Generation]: Rank 0: Generating batch 135/196 (samples 4288-4319)
+[11/28 15:59:32 Inference Generation]: Rank 0: Saved batch 135/196 (32 images)
+[11/28 15:59:32 Inference Generation]: Rank 0: Generating batch 136/196 (samples 4320-4351)
+[11/28 16:01:19 Inference Generation]: Rank 0: Saved batch 136/196 (32 images)
+[11/28 16:01:19 Inference Generation]: Rank 0: Generating batch 137/196 (samples 4352-4383)
+[11/28 16:03:06 Inference Generation]: Rank 0: Saved batch 137/196 (32 images)
+[11/28 16:03:06 Inference Generation]: Rank 0: Generating batch 138/196 (samples 4384-4415)
+[11/28 16:04:53 Inference Generation]: Rank 0: Saved batch 138/196 (32 images)
+[11/28 16:04:53 Inference Generation]: Rank 0: Generating batch 139/196 (samples 4416-4447)
+[11/28 16:06:37 Inference Generation]: Rank 0: Saved batch 139/196 (32 images)
+[11/28 16:06:37 Inference Generation]: Rank 0: Generating batch 140/196 (samples 4448-4479)
+[11/28 16:08:23 Inference Generation]: Rank 0: Saved batch 140/196 (32 images)
+[11/28 16:08:23 Inference Generation]: Rank 0: Generating batch 141/196 (samples 4480-4511)
+[11/28 16:10:10 Inference Generation]: Rank 0: Saved batch 141/196 (32 images)
+[11/28 16:10:10 Inference Generation]: Rank 0: Generating batch 142/196 (samples 4512-4543)
+[11/28 16:11:56 Inference Generation]: Rank 0: Saved batch 142/196 (32 images)
+[11/28 16:11:56 Inference Generation]: Rank 0: Generating batch 143/196 (samples 4544-4575)
+[11/28 16:13:43 Inference Generation]: Rank 0: Saved batch 143/196 (32 images)
+[11/28 16:13:43 Inference Generation]: Rank 0: Generating batch 144/196 (samples 4576-4607)
+[11/28 16:15:29 Inference Generation]: Rank 0: Saved batch 144/196 (32 images)
+[11/28 16:15:29 Inference Generation]: Rank 0: Generating batch 145/196 (samples 4608-4639)
+[11/28 16:17:16 Inference Generation]: Rank 0: Saved batch 145/196 (32 images)
+[11/28 16:17:16 Inference Generation]: Rank 0: Generating batch 146/196 (samples 4640-4671)
+[11/28 16:19:03 Inference Generation]: Rank 0: Saved batch 146/196 (32 images)
+[11/28 16:19:03 Inference Generation]: Rank 0: Generating batch 147/196 (samples 4672-4703)
+[11/28 16:20:49 Inference Generation]: Rank 0: Saved batch 147/196 (32 images)
+[11/28 16:20:49 Inference Generation]: Rank 0: Generating batch 148/196 (samples 4704-4735)
+[11/28 16:22:35 Inference Generation]: Rank 0: Saved batch 148/196 (32 images)
+[11/28 16:22:35 Inference Generation]: Rank 0: Generating batch 149/196 (samples 4736-4767)
+srun: got SIGCONT
+slurmstepd: error: *** JOB 6418432 ON SH-IDCA1404-10-140-54-11 CANCELLED AT 2025-11-28T16:24:13 ***
+srun: Job step aborted: Waiting up to 2 seconds for job step to finish.
+slurmstepd: error: *** STEP 6418432.0 ON SH-IDCA1404-10-140-54-11 CANCELLED AT 2025-11-28T16:24:13 ***
+srun: Easily find out why your job was killed by following the link below:
+	https://docs.phoenix.sensetime.com/FAQ/SlurmFAQ/Find-out-why-my-job-was-killed/
+srun: forcing job termination
+W1128 16:24:13.822000 110048 site-packages/torch/distributed/elastic/agent/server/api.py:719] Received Signals.SIGTERM death signal, shutting down workers
+W1128 16:24:13.826000 110048 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 110726 closing signal SIGTERM
+W1128 16:24:13.827000 110048 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 110727 closing signal SIGTERM
+W1128 16:24:13.828000 110048 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 110728 closing signal SIGTERM
+W1128 16:24:13.828000 110048 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 110730 closing signal SIGTERM
+W1128 16:24:13.829000 110048 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 110731 closing signal SIGTERM
+W1128 16:24:13.829000 110048 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 110732 closing signal SIGTERM
+W1128 16:24:13.830000 110048 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 110733 closing signal SIGTERM
+W1128 16:24:13.830000 110048 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 110734 closing signal SIGTERM

@@ -11,9 +11,6 @@ Reference:
 import math
 import numpy as np
 import torch
-import glob
-import decord
-from io import BytesIO
 from typing import List, Union, Text
 import webdataset as wds
 from torch.utils.data import default_collate

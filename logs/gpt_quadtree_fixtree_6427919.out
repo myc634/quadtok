@@ -1,0 +1,1543 @@
+/var/spool/slurmd/job6427919/slurm_script: line 13: /mnt/petrelfs/jianglihan/miniforge3/bin/activate: No such file or directory
+Head Node IP: SH-IDCA1404-10-140-54-4
+Total Nodes: 4
+Command to run:
+accelerate launch   --config_file configs/accelerate_config/mnode8gpu.yaml   --main_process_ip=SH-IDCA1404-10-140-54-4   --main_process_port=29500   --num_processes=32   --num_machines=4   --machine_rank=$SLURM_PROCID   scripts/train_generator.py config=configs/training/generator/gpt_quadtree_fixtree.yaml
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+attention mode is flash
+Detected kernel version 3.10.0, which is below the recommended minimum of 5.5.0; this can cause the process to hang. It is recommended to upgrade the kernel to the minimum version or higher.
+wandb: Tracking run with wandb version 0.23.0
+wandb: W&B syncing is set to `offline` in this directory. Run `wandb online` or set WANDB_MODE=online to enable cloud syncing.
+wandb: Run data is saved locally in /mnt/petrelfs/jianglihan/my_code/quadtok/wandb/offline-run-20251201_001220-8k7nwy1t
+[12/01 00:12:21 TiTok-Gen]: Saving config to checkpoints/generator/gpt_quadtree_fixtree/config.yaml
+[12/01 00:12:21 TiTok-Gen]: Config:
+experiment:
+  project: dynamic_tokenizer_generation
+  name: gpt_quadtree_fixtree
+  output_dir: checkpoints/generator/gpt_quadtree_fixtree
+  max_train_examples: 1281167
+  save_every: 10000
+  eval_every: 50000
+  generate_every: 1000
+  log_every: 50
+  log_grad_norm_every: 1000
+  resume: false
+  logging_dir: checkpoints/generator/gpt_quadtree_fixtree/logs
+tokenizer:
+  type: quadtok
+  tokenizer_ckpt_dir: /mnt/petrelfs/jianglihan/my_code/quadtok/checkpoints/quadtok_sl256_vq_ts8-expandprob34/checkpoint-250000/ema_model/pytorch_model.bin
+  vae_embed_dim: 8
+model:
+  type: quadtok
+  grad_checkpointing: true
+  vq_model:
+    quantize_mode: vq
+    vit_enc_model_size: small
+    vit_dec_model_size: small
+    vit_enc_patch_size: 16
+    vit_dec_patch_size: 16
+    decoder_token_size: 256
+    codebook_size: 16384
+    use_l2_norm: true
+    commitment_cost: 0.25
+    token_size: 8
+  selector:
+    token_size: 8
+    num_patch_side_list:
+    - 1
+    - 2
+    - 4
+    - 8
+    - 16
+    - 32
+    patch_size_list:
+    - 16
+    - 16
+    - 16
+    - 16
+    - 16
+    - 8
+  generator_type: gpt-quadtree
+  generator:
+    model_size: base
+    patch_size: 1
+    image_size: 256
+    num_patch_side_list:
+    - 1
+    - 2
+    - 4
+    - 8
+    - 16
+    - 32
+    patch_size_list:
+    - 16
+    - 16
+    - 16
+    - 16
+    - 16
+    - 8
+    guaranteed_depth: 3
+    class_num: 1000
+    label_drop_prob: 0.1
+    mask_ratio_min: 0.7
+    buffer_size: 1
+    proj_dropout: 0.1
+    attn_dropout: 0.1
+losses:
+  model_embed_dim: 768
+  diffloss_d: 8
+  diffloss_w: 1280
+  expand_loss_weight: 1.0
+dataset:
+  type: simple_image
+  params:
+    train_shards_path_or_url: pipe:rclone cat hoss:jianglihan/data/imagenet/imagenet-train-{000000..000070}.tar
+    eval_shards_path_or_url: pipe:rclone cat hoss:jianglihan/data/imagenet/imagenet-val-{000000..000049}.tar
+    num_workers_per_gpu: 12
+  preprocessing:
+    resize_shorter_edge: 256
+    crop_size: 256
+    random_crop: true
+    random_flip: true
+    res_ratio_filtering: true
+optimizer:
+  name: adamw
+  params:
+    learning_rate: 0.0001
+    beta1: 0.9
+    beta2: 0.96
+    weight_decay: 0.03
+lr_scheduler:
+  scheduler: cosine
+  params:
+    learning_rate: ${optimizer.params.learning_rate}
+    warmup_steps: 10000
+    end_lr: 1.0e-05
+training:
+  gradient_accumulation_steps: 1
+  per_gpu_batch_size: 32
+  mixed_precision: bf16
+  enable_tf32: true
+  enable_wandb: true
+  use_ema: true
+  seed: 42
+  max_train_steps: 1000000
+  max_grad_norm: 1.0
+config: configs/training/generator/gpt_quadtree_fixtree.yaml
+
+[12/01 00:12:27 TiTok-Gen]: Creating model and loss module.
+[12/01 00:12:27 TiTok-Gen]: Creating model.
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+[12/01 00:12:34 TiTok-Gen]: Creating optimizers.
+[12/01 00:12:34 TiTok-Gen]: Creating lr_schedulers.
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+)
+[12/01 00:12:34 TiTok-Gen]: Preparing model, optimizer and dataloaders
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.train_transform: Compose(
+    Resize(size=256, interpolation=bicubic, max_size=None, antialias=True)
+    RandomCrop(size=(256, 256), padding=None)
+    RandomHorizontalFlip(p=0.5)
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+self.eval_transform: Compose(
+    Resize(size=256, interpolation=bilinear, max_size=None, antialias=True)
+    CenterCrop(size=(256, 256))
+    ToTensor()
+    Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+)
+SH-IDCA1404-10-140-54-4:25252:25252 [0] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25252:25252 [0] NCCL INFO Bootstrap : Using bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-4:25252:25252 [0] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-4:25252:25252 [0] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-4:25252:25252 [0] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-4:25252:25252 [0] NCCL INFO cudaDriverVersion 12000
+NCCL version 2.21.5+cuda11.0
+SH-IDCA1404-10-140-54-4:25260:25260 [7] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-4:25257:25257 [5] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-4:25255:25255 [3] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-4:25260:25260 [7] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25257:25257 [5] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25255:25255 [3] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25253:25253 [1] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-4:25258:25258 [6] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-4:25253:25253 [1] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25256:25256 [4] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-4:25258:25258 [6] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25254:25254 [2] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-4:25256:25256 [4] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25254:25254 [2] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25260:25260 [7] NCCL INFO Bootstrap : Using bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-4:25257:25257 [5] NCCL INFO Bootstrap : Using bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-4:25255:25255 [3] NCCL INFO Bootstrap : Using bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-4:25253:25253 [1] NCCL INFO Bootstrap : Using bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-4:25256:25256 [4] NCCL INFO Bootstrap : Using bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-4:25254:25254 [2] NCCL INFO Bootstrap : Using bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-4:25258:25258 [6] NCCL INFO Bootstrap : Using bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-4:25257:25257 [5] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-4:25257:25257 [5] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-4:25257:25257 [5] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-4:25260:25260 [7] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-4:25260:25260 [7] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-4:25260:25260 [7] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-4:25254:25254 [2] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-4:25254:25254 [2] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-4:25254:25254 [2] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-11:20453:20453 [6] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-4:25255:25255 [3] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-11:20453:20453 [6] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20432:20432 [2] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-4:25255:25255 [3] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-4:25255:25255 [3] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-11:20432:20432 [2] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25253:25253 [1] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-11:20453:20453 [6] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:20432:20432 [2] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-4:25253:25253 [1] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-4:25253:25253 [1] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-4:25258:25258 [6] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-4:25258:25258 [6] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-4:25258:25258 [6] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-4:25256:25256 [4] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-4:25256:25256 [4] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-4:25256:25256 [4] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-11:20433:20433 [3] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-11:20433:20433 [3] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20433:20433 [3] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:20451:20451 [5] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-11:20451:20451 [5] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20451:20451 [5] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:20454:20454 [7] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-11:20454:20454 [7] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20439:20439 [4] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-11:20454:20454 [7] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:20439:20439 [4] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20439:20439 [4] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-10:10133:10133 [4] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-10:10135:10135 [6] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-11:20431:20431 [1] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-10:10130:10130 [1] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-10:10133:10133 [4] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-10:10130:10130 [1] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-10:10135:10135 [6] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20430:20430 [0] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-37:17585:17585 [6] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-10:10130:10130 [1] NCCL INFO Bootstrap : Using bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-10:10133:10133 [4] NCCL INFO Bootstrap : Using bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-11:20430:20430 [0] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20431:20431 [1] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-37:17580:17580 [1] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-10:10135:10135 [6] NCCL INFO Bootstrap : Using bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-11:20430:20430 [0] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:20431:20431 [1] NCCL INFO Bootstrap : Using bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-37:17580:17580 [1] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-37:17585:17585 [6] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-10:10132:10132 [3] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-37:17588:17588 [7] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-10:10132:10132 [3] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-37:17588:17588 [7] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-10:10136:10136 [7] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-37:17583:17583 [4] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-10:10132:10132 [3] NCCL INFO Bootstrap : Using bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-37:17583:17583 [4] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-10:10134:10134 [5] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-37:17579:17579 [0] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-10:10136:10136 [7] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-37:17579:17579 [0] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-10:10134:10134 [5] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-37:17584:17584 [5] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-10:10131:10131 [2] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-37:17584:17584 [5] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-10:10129:10129 [0] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-37:17582:17582 [3] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-10:10131:10131 [2] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20433:20433 [3] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-37:17582:17582 [3] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-10:10129:10129 [0] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20433:20433 [3] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-37:17580:17580 [1] NCCL INFO Bootstrap : Using bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-10:10136:10136 [7] NCCL INFO Bootstrap : Using bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-10:10134:10134 [5] NCCL INFO Bootstrap : Using bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-11:20433:20433 [3] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-37:17588:17588 [7] NCCL INFO Bootstrap : Using bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-10:10129:10129 [0] NCCL INFO Bootstrap : Using bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-11:20453:20453 [6] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-37:17583:17583 [4] NCCL INFO Bootstrap : Using bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-10:10131:10131 [2] NCCL INFO Bootstrap : Using bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-11:20453:20453 [6] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-11:20453:20453 [6] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-37:17584:17584 [5] NCCL INFO Bootstrap : Using bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-11:20432:20432 [2] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-37:17579:17579 [0] NCCL INFO Bootstrap : Using bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-11:20432:20432 [2] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-37:17582:17582 [3] NCCL INFO Bootstrap : Using bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-11:20432:20432 [2] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-37:17585:17585 [6] NCCL INFO Bootstrap : Using bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-11:20430:20430 [0] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-37:17581:17581 [2] NCCL INFO cudaDriverVersion 12000
+SH-IDCA1404-10-140-54-11:20430:20430 [0] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-11:20430:20430 [0] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-11:20439:20439 [4] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-37:17581:17581 [2] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20439:20439 [4] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-37:17581:17581 [2] NCCL INFO Bootstrap : Using bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-11:20439:20439 [4] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-11:20451:20451 [5] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-11:20451:20451 [5] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-11:20451:20451 [5] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-11:20431:20431 [1] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-11:20454:20454 [7] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-11:20431:20431 [1] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-11:20431:20431 [1] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-11:20454:20454 [7] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-11:20454:20454 [7] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-10:10134:10134 [5] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-10:10134:10134 [5] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-10:10134:10134 [5] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-10:10133:10133 [4] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-10:10133:10133 [4] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-10:10133:10133 [4] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-10:10136:10136 [7] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-10:10136:10136 [7] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-10:10136:10136 [7] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-10:10130:10130 [1] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-10:10130:10130 [1] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-10:10130:10130 [1] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-10:10135:10135 [6] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-10:10135:10135 [6] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-10:10135:10135 [6] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-10:10132:10132 [3] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-37:17585:17585 [6] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-10:10132:10132 [3] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-10:10132:10132 [3] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-37:17585:17585 [6] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-37:17585:17585 [6] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-10:10131:10131 [2] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-37:17579:17579 [0] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-10:10131:10131 [2] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-10:10131:10131 [2] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-37:17579:17579 [0] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-10:10129:10129 [0] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-37:17579:17579 [0] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-10:10129:10129 [0] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-10:10129:10129 [0] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-37:17582:17582 [3] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-37:17582:17582 [3] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-37:17582:17582 [3] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-37:17584:17584 [5] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-37:17584:17584 [5] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-37:17584:17584 [5] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-37:17581:17581 [2] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-37:17581:17581 [2] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-37:17581:17581 [2] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-37:17583:17583 [4] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-37:17583:17583 [4] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-37:17583:17583 [4] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-37:17588:17588 [7] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-37:17588:17588 [7] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-37:17588:17588 [7] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-37:17580:17580 [1] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+SH-IDCA1404-10-140-54-37:17580:17580 [1] NCCL INFO NET/Plugin: Plugin load returned 2 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-net.so
+SH-IDCA1404-10-140-54-37:17580:17580 [1] NCCL INFO NET/Plugin: Using internal network plugin.
+SH-IDCA1404-10-140-54-4:25252:25252 [0] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-4:25255:25255 [3] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-4:25256:25256 [4] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-4:25260:25260 [7] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-4:25257:25257 [5] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-4:25254:25254 [2] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-11:20432:20432 [2] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-4:25258:25258 [6] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-4:25253:25253 [1] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-10:10135:10135 [6] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:20451:20451 [5] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-37:17585:17585 [6] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-11:20453:20453 [6] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-10:10134:10134 [5] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:20454:20454 [7] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-37:17579:17579 [0] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-10:10133:10133 [4] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:20431:20431 [1] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-37:17583:17583 [4] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-10:10131:10131 [2] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-10:10129:10129 [0] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-10:10130:10130 [1] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-10:10132:10132 [3] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-10:10136:10136 [7] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-37:17588:17588 [7] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-11:20439:20439 [4] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-11:20430:20430 [0] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20433:20433 [3] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-37:17584:17584 [5] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.4<0>
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-37:17582:17582 [3] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.11<0>
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.10<0>
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-37:17581:17581 [2] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-37:17580:17580 [1] NCCL INFO Comm config Blocking set to 1
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO NCCL_SOCKET_IFNAME set by environment to bond0
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO NCCL_IB_HCA set to mlx5_0,mlx5_2
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO NET/IB : Using [0]mlx5_2:1/IB [RO]; OOB bond0:10.140.54.37<0>
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO Using non-device net plugin version 0
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO Using network IB
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO ncclCommInitRank comm 0xa7deea0 rank 21 nranks 32 cudaDev 5 nvmlDev 5 busId a1000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO ncclCommInitRank comm 0xb6db9a0 rank 19 nranks 32 cudaDev 3 nvmlDev 3 busId 71000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO ncclCommInitRank comm 0xaf912b0 rank 20 nranks 32 cudaDev 4 nvmlDev 4 busId 9d000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO ncclCommInitRank comm 0xd14e080 rank 23 nranks 32 cudaDev 7 nvmlDev 7 busId d7000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO ncclCommInitRank comm 0xc570a70 rank 18 nranks 32 cudaDev 2 nvmlDev 2 busId 6b000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO ncclCommInitRank comm 0x9d51d30 rank 31 nranks 32 cudaDev 7 nvmlDev 7 busId d7000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO ncclCommInitRank comm 0xb3448c0 rank 24 nranks 32 cudaDev 0 nvmlDev 0 busId 51000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO ncclCommInitRank comm 0xa19d0f0 rank 25 nranks 32 cudaDev 1 nvmlDev 1 busId 56000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO ncclCommInitRank comm 0xc3cf900 rank 26 nranks 32 cudaDev 2 nvmlDev 2 busId 6b000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO ncclCommInitRank comm 0xb5e39c0 rank 30 nranks 32 cudaDev 6 nvmlDev 6 busId d4000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO ncclCommInitRank comm 0xc975a50 rank 6 nranks 32 cudaDev 6 nvmlDev 6 busId d4000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO ncclCommInitRank comm 0xcf21820 rank 2 nranks 32 cudaDev 2 nvmlDev 2 busId 6b000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO ncclCommInitRank comm 0xd64aae0 rank 4 nranks 32 cudaDev 4 nvmlDev 4 busId 9d000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO ncclCommInitRank comm 0xb8487d0 rank 0 nranks 32 cudaDev 0 nvmlDev 0 busId 51000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO ncclCommInitRank comm 0x9c424f0 rank 1 nranks 32 cudaDev 1 nvmlDev 1 busId 56000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO ncclCommInitRank comm 0xa66c300 rank 5 nranks 32 cudaDev 5 nvmlDev 5 busId a1000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO ncclCommInitRank comm 0xcc13770 rank 15 nranks 32 cudaDev 7 nvmlDev 7 busId d7000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO ncclCommInitRank comm 0xac91fe0 rank 14 nranks 32 cudaDev 6 nvmlDev 6 busId d4000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO ncclCommInitRank comm 0xb3c2b30 rank 13 nranks 32 cudaDev 5 nvmlDev 5 busId a1000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO ncclCommInitRank comm 0xc1f5080 rank 12 nranks 32 cudaDev 4 nvmlDev 4 busId 9d000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO ncclCommInitRank comm 0x5d728800 rank 3 nranks 32 cudaDev 3 nvmlDev 3 busId 71000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO ncclCommInitRank comm 0xb85d320 rank 10 nranks 32 cudaDev 2 nvmlDev 2 busId 6b000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO ncclCommInitRank comm 0xb1d2a00 rank 11 nranks 32 cudaDev 3 nvmlDev 3 busId 71000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO ncclCommInitRank comm 0xc7a68a0 rank 9 nranks 32 cudaDev 1 nvmlDev 1 busId 56000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO ncclCommInitRank comm 0xcffa290 rank 8 nranks 32 cudaDev 0 nvmlDev 0 busId 51000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO ncclCommInitRank comm 0xb3bba80 rank 17 nranks 32 cudaDev 1 nvmlDev 1 busId 56000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO ncclCommInitRank comm 0xc2f7af0 rank 27 nranks 32 cudaDev 3 nvmlDev 3 busId 71000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO ncclCommInitRank comm 0xc2cc6c0 rank 29 nranks 32 cudaDev 5 nvmlDev 5 busId a1000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO ncclCommInitRank comm 0x56c0fb40 rank 7 nranks 32 cudaDev 7 nvmlDev 7 busId d7000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO ncclCommInitRank comm 0xb91c2a0 rank 16 nranks 32 cudaDev 0 nvmlDev 0 busId 51000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO ncclCommInitRank comm 0x53c0e8c0 rank 22 nranks 32 cudaDev 6 nvmlDev 6 busId d4000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO ncclCommInitRank comm 0xac230a0 rank 28 nranks 32 cudaDev 4 nvmlDev 4 busId 9d000 commId 0x9981ca1a6400aeae - Init START
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO Setting affinity for GPU 5 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO Setting affinity for GPU 5 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO Setting affinity for GPU 3 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO Setting affinity for GPU 2 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO Setting affinity for GPU 3 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO Setting affinity for GPU 1 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO Setting affinity for GPU 2 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO Setting affinity for GPU 3 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO Setting affinity for GPU 2 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO Setting affinity for GPU 7 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO Setting affinity for GPU 4 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO Setting affinity for GPU 1 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO Setting affinity for GPU 4 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO Setting affinity for GPU 7 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO Setting affinity for GPU 4 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Setting affinity for GPU 0 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO Setting affinity for GPU 7 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO Setting affinity for GPU 6 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO Setting affinity for GPU 2 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO Setting affinity for GPU 4 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO Setting affinity for GPU 3 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO Setting affinity for GPU 7 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Setting affinity for GPU 0 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Setting affinity for GPU 0 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO Setting affinity for GPU 5 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Setting affinity for GPU 0 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO Setting affinity for GPU 6 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO Setting affinity for GPU 1 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO Setting affinity for GPU 5 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO Setting affinity for GPU 6 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO Setting affinity for GPU 6 to ffffffff,00000000,ffffffff,00000000
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO Setting affinity for GPU 1 to ffffffff,00000000,ffffffff
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO comm 0x5d728800 rank 3 nRanks 32 nNodes 4 localRanks 8 localRank 3 MNNVL 0
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO comm 0xd64aae0 rank 4 nRanks 32 nNodes 4 localRanks 8 localRank 4 MNNVL 0
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO comm 0xa66c300 rank 5 nRanks 32 nNodes 4 localRanks 8 localRank 5 MNNVL 0
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO comm 0x56c0fb40 rank 7 nRanks 32 nNodes 4 localRanks 8 localRank 7 MNNVL 0
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO comm 0xc975a50 rank 6 nRanks 32 nNodes 4 localRanks 8 localRank 6 MNNVL 0
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO comm 0xcf21820 rank 2 nRanks 32 nNodes 4 localRanks 8 localRank 2 MNNVL 0
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO comm 0x9c424f0 rank 1 nRanks 32 nNodes 4 localRanks 8 localRank 1 MNNVL 0
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO Trees [0] 4/-1/-1->3->2 [1] 4/-1/-1->3->2
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO comm 0xc7a68a0 rank 9 nRanks 32 nNodes 4 localRanks 8 localRank 1 MNNVL 0
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO comm 0xb85d320 rank 10 nRanks 32 nNodes 4 localRanks 8 localRank 2 MNNVL 0
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO comm 0xb3c2b30 rank 13 nRanks 32 nNodes 4 localRanks 8 localRank 5 MNNVL 0
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO comm 0xcc13770 rank 15 nRanks 32 nNodes 4 localRanks 8 localRank 7 MNNVL 0
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO comm 0xb1d2a00 rank 11 nRanks 32 nNodes 4 localRanks 8 localRank 3 MNNVL 0
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO comm 0xcffa290 rank 8 nRanks 32 nNodes 4 localRanks 8 localRank 0 MNNVL 0
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO comm 0xac91fe0 rank 14 nRanks 32 nNodes 4 localRanks 8 localRank 6 MNNVL 0
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO comm 0x53c0e8c0 rank 22 nRanks 32 nNodes 4 localRanks 8 localRank 6 MNNVL 0
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO comm 0xd14e080 rank 23 nRanks 32 nNodes 4 localRanks 8 localRank 7 MNNVL 0
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO comm 0xb5e39c0 rank 30 nRanks 32 nNodes 4 localRanks 8 localRank 6 MNNVL 0
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO comm 0x9d51d30 rank 31 nRanks 32 nNodes 4 localRanks 8 localRank 7 MNNVL 0
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO Trees [0] 5/-1/-1->4->3 [1] 5/-1/-1->4->3
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO comm 0xb8487d0 rank 0 nRanks 32 nNodes 4 localRanks 8 localRank 0 MNNVL 0
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO Trees [0] 6/-1/-1->5->4 [1] 6/-1/-1->5->4
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO Trees [0] -1/-1/-1->7->6 [1] -1/-1/-1->7->6
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO Trees [0] 3/-1/-1->2->1 [1] 3/-1/-1->2->1
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO Trees [0] 2/-1/-1->1->0 [1] 2/-1/-1->1->0
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO comm 0xc1f5080 rank 12 nRanks 32 nNodes 4 localRanks 8 localRank 4 MNNVL 0
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO comm 0xb91c2a0 rank 16 nRanks 32 nNodes 4 localRanks 8 localRank 0 MNNVL 0
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO comm 0xc570a70 rank 18 nRanks 32 nNodes 4 localRanks 8 localRank 2 MNNVL 0
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO comm 0xaf912b0 rank 20 nRanks 32 nNodes 4 localRanks 8 localRank 4 MNNVL 0
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO comm 0xc2cc6c0 rank 29 nRanks 32 nNodes 4 localRanks 8 localRank 5 MNNVL 0
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO Trees [0] 7/-1/-1->6->5 [1] 7/-1/-1->6->5
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO Trees [0] 10/-1/-1->9->8 [1] 10/16/-1->9->8
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO Trees [0] 11/-1/-1->10->9 [1] 11/-1/-1->10->9
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO Trees [0] 14/-1/-1->13->12 [1] 14/-1/-1->13->12
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Trees [0] 9/-1/-1->8->17 [1] 9/0/-1->8->24
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO Trees [0] 12/-1/-1->11->10 [1] 12/-1/-1->11->10
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO comm 0xb3bba80 rank 17 nRanks 32 nNodes 4 localRanks 8 localRank 1 MNNVL 0
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO comm 0xb6db9a0 rank 19 nRanks 32 nNodes 4 localRanks 8 localRank 3 MNNVL 0
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO comm 0xa7deea0 rank 21 nRanks 32 nNodes 4 localRanks 8 localRank 5 MNNVL 0
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO comm 0xac230a0 rank 28 nRanks 32 nNodes 4 localRanks 8 localRank 4 MNNVL 0
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO Trees [0] 31/-1/-1->30->29 [1] 31/-1/-1->30->29
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO Trees [0] -1/-1/-1->31->30 [1] -1/-1/-1->31->30
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Channel 00/02 :    0   7   6   5   4   3   2   1   8  15  14  13  12  11  10   9  16  23  22  21
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Channel 01/02 :    0   7   6   5   4   3   2   1   8  15  14  13  12  11  10   9  16  23  22  21
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Trees [0] 1/16/-1->0->-1 [1] 1/-1/-1->0->8
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO Trees [0] -1/-1/-1->15->14 [1] -1/-1/-1->15->14
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO Trees [0] 15/-1/-1->14->13 [1] 15/-1/-1->14->13
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO Trees [0] 13/-1/-1->12->11 [1] 13/-1/-1->12->11
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO Trees [0] 23/-1/-1->22->21 [1] 23/-1/-1->22->21
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO Trees [0] -1/-1/-1->23->22 [1] -1/-1/-1->23->22
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Trees [0] 17/24/-1->16->0 [1] 17/-1/-1->16->9
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO Trees [0] 19/-1/-1->18->17 [1] 19/-1/-1->18->17
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO Trees [0] 21/-1/-1->20->19 [1] 21/-1/-1->20->19
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO comm 0xc2f7af0 rank 27 nRanks 32 nNodes 4 localRanks 8 localRank 3 MNNVL 0
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO Channel 00/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO Trees [0] 18/8/-1->17->16 [1] 18/-1/-1->17->16
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO Trees [0] 20/-1/-1->19->18 [1] 20/-1/-1->19->18
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO comm 0xa19d0f0 rank 25 nRanks 32 nNodes 4 localRanks 8 localRank 1 MNNVL 0
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO comm 0xc3cf900 rank 26 nRanks 32 nNodes 4 localRanks 8 localRank 2 MNNVL 0
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO Trees [0] 29/-1/-1->28->27 [1] 29/-1/-1->28->27
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO Trees [0] 30/-1/-1->29->28 [1] 30/-1/-1->29->28
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO Channel 00/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO Channel 00/0 : 10[2] -> 9[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO Trees [0] 22/-1/-1->21->20 [1] 22/-1/-1->21->20
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO comm 0xb3448c0 rank 24 nRanks 32 nNodes 4 localRanks 8 localRank 0 MNNVL 0
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO Channel 00/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO Channel 00/0 : 11[3] -> 10[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO Channel 00/0 : 22[6] -> 21[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO Trees [0] 28/-1/-1->27->26 [1] 28/-1/-1->27->26
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO Trees [0] 26/-1/-1->25->24 [1] 26/-1/-1->25->24
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO Channel 00/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO Channel 00/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO Channel 00/0 : 13[5] -> 12[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO Channel 00/0 : 20[4] -> 19[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO Trees [0] 27/-1/-1->26->25 [1] 27/-1/-1->26->25
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Trees [0] 25/-1/-1->24->16 [1] 25/8/-1->24->-1
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO P2P Chunksize set to 131072
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO Channel 01/0 : 3[3] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO Channel 00/0 : 12[4] -> 11[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO Channel 00/0 : 18[2] -> 17[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO Channel 00/0 : 30[6] -> 29[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO Channel 01/0 : 4[4] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO Channel 00/0 : 14[6] -> 13[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO Channel 00/0 : 19[3] -> 18[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO Channel 00/0 : 28[4] -> 27[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO Channel 01/0 : 2[2] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO Channel 01/0 : 10[2] -> 9[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO Channel 00/0 : 21[5] -> 20[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO Channel 00/0 : 26[2] -> 25[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO Channel 01/0 : 6[6] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO Channel 01/0 : 11[3] -> 10[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO Channel 01/0 : 22[6] -> 21[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO Channel 00/0 : 29[5] -> 28[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO Channel 01/0 : 5[5] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO Channel 01/0 : 13[5] -> 12[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO Channel 01/0 : 20[4] -> 19[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO Channel 00/0 : 27[3] -> 26[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Channel 00/0 : 25[1] -> 0[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO Channel 01/0 : 12[4] -> 11[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO Channel 01/0 : 18[2] -> 17[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO Channel 01/0 : 30[6] -> 29[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Channel 01/0 : 25[1] -> 0[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Channel 00/0 : 9[1] -> 16[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO Channel 01/0 : 28[4] -> 27[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Channel 00/0 : 0[0] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO Channel 01/0 : 14[6] -> 13[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO Channel 01/0 : 19[3] -> 18[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO Channel 01/0 : 26[2] -> 25[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO Channel 00/0 : 1[1] -> 8[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO Channel 00/0 : 9[1] -> 16[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO Channel 00/0 : 17[1] -> 24[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO Channel 01/0 : 21[5] -> 20[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Channel 01/0 : 9[1] -> 16[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO Channel 01/0 : 29[5] -> 28[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO Channel 01/0 : 1[1] -> 8[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Channel 00/0 : 1[1] -> 8[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Channel 00/0 : 16[0] -> 23[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Channel 01/0 : 0[0] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO Channel 01/0 : 9[1] -> 16[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO Channel 01/0 : 17[1] -> 24[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO Channel 01/0 : 27[3] -> 26[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO Channel 00/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Channel 01/0 : 1[1] -> 8[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Channel 01/0 : 16[0] -> 23[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO Channel 00/0 : 25[1] -> 0[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Channel 00/0 : 8[0] -> 15[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO Channel 01/0 : 25[1] -> 0[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO Channel 01/0 : 7[7] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Channel 01/0 : 8[0] -> 15[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Channel 00/0 : 17[1] -> 24[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO Channel 00/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO Channel 00/0 : 20[4] -> 21[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Channel 01/0 : 17[1] -> 24[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO Channel 01/0 : 4[4] -> 5[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO Channel 00/0 : 12[4] -> 13[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO Channel 01/0 : 20[4] -> 21[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Channel 00/0 : 24[0] -> 31[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO Channel 01/0 : 12[4] -> 13[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Channel 01/0 : 24[0] -> 31[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO Channel 00/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO Channel 01/0 : 5[5] -> 6[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO Channel 00/0 : 28[4] -> 29[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO Channel 01/0 : 28[4] -> 29[5] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO Channel 00/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO Channel 00/0 : 27[3] -> 28[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO Channel 01/0 : 6[6] -> 7[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO Channel 01/0 : 27[3] -> 28[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO Channel 00/0 : 23[7] -> 22[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO Channel 01/0 : 23[7] -> 22[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO Channel 00/0 : 11[3] -> 12[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO Channel 01/0 : 11[3] -> 12[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO Channel 00/0 : 21[5] -> 22[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO Channel 01/0 : 21[5] -> 22[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO Channel 00/0 : 31[7] -> 30[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO Channel 01/0 : 31[7] -> 30[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO Channel 00/0 : 22[6] -> 23[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO Channel 00/0 : 29[5] -> 30[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO Channel 01/0 : 22[6] -> 23[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO Channel 00/0 : 19[3] -> 20[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO Channel 01/0 : 29[5] -> 30[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO Channel 01/0 : 19[3] -> 20[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO Channel 00/0 : 30[6] -> 31[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO Channel 01/0 : 30[6] -> 31[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Channel 00/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Channel 01/0 : 0[0] -> 1[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO Channel 00/0 : 15[7] -> 14[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO Channel 00/0 : 25[1] -> 26[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO Channel 01/0 : 15[7] -> 14[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO Channel 01/0 : 25[1] -> 26[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO Channel 00/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO Channel 01/0 : 3[3] -> 4[4] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO Channel 00/0 : 26[2] -> 27[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO Channel 01/0 : 26[2] -> 27[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO Channel 00/0 : 13[5] -> 14[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO Channel 01/0 : 13[5] -> 14[6] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO Channel 00/0 : 14[6] -> 15[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO Channel 01/0 : 14[6] -> 15[7] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO Channel 00/0 : 17[1] -> 18[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Channel 00/0 : 24[0] -> 25[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Channel 01/0 : 24[0] -> 25[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO Channel 01/0 : 17[1] -> 18[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO Channel 00/0 : 25[1] -> 24[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Channel 00/0 : 16[0] -> 24[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO Channel 01/0 : 25[1] -> 24[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO Channel 00/0 : 18[2] -> 19[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO Channel 01/0 : 18[2] -> 19[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Channel 01/0 : 8[0] -> 24[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO Channel 00/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO Channel 00/0 : 9[1] -> 10[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO Channel 01/0 : 9[1] -> 10[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Channel 00/0 : 16[0] -> 17[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Channel 01/0 : 24[0] -> 8[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO Channel 01/0 : 1[1] -> 2[2] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Channel 01/0 : 16[0] -> 17[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Channel 00/0 : 24[0] -> 16[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Channel 01/0 : 0[0] -> 8[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO Channel 00/0 : 10[2] -> 11[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Channel 00/0 : 16[0] -> 24[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO Channel 00/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO Channel 01/0 : 10[2] -> 11[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO Channel 00/0 : 8[0] -> 17[1] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO Channel 01/0 : 2[2] -> 3[3] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Channel 00/0 : 0[0] -> 16[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO Channel 00/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Channel 00/0 : 16[0] -> 0[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Channel 00/0 : 16[0] -> 0[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO Channel 00/0 : 17[1] -> 8[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Channel 00/0 : 0[0] -> 16[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Connected all rings
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Channel 00/0 : 24[0] -> 16[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO Channel 01/0 : 1[1] -> 0[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Channel 00/0 : 8[0] -> 9[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO Channel 00/0 : 17[1] -> 16[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Channel 01/0 : 8[0] -> 0[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Channel 01/0 : 8[0] -> 9[1] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Channel 01/0 : 16[0] -> 9[1] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Channel 01/0 : 0[0] -> 8[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO Channel 01/0 : 17[1] -> 16[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO Channel 01/0 : 16[0] -> 9[1] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Channel 00/0 : 8[0] -> 17[1] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Channel 01/0 : 24[0] -> 8[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Channel 01/0 : 8[0] -> 24[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Channel 00/0 : 17[1] -> 8[0] [receive] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Channel 01/0 : 8[0] -> 0[0] [send] via NET/IB/0/GDRDMA
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO Channel 00/0 : 9[1] -> 8[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO Channel 01/0 : 9[1] -> 8[0] via P2P/IPC/read
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO Connected all trees
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO threadThresholds 8/8/64 | 256/8/64 | 512 | 512
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-4:25255:25841 [3] NCCL INFO ncclCommInitRank comm 0x5d728800 rank 3 nranks 32 cudaDev 3 nvmlDev 3 busId 71000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-4:25257:25848 [5] NCCL INFO ncclCommInitRank comm 0xa66c300 rank 5 nranks 32 cudaDev 5 nvmlDev 5 busId a1000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-4:25254:25849 [2] NCCL INFO ncclCommInitRank comm 0xcf21820 rank 2 nranks 32 cudaDev 2 nvmlDev 2 busId 6b000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-4:25260:25843 [7] NCCL INFO ncclCommInitRank comm 0x56c0fb40 rank 7 nranks 32 cudaDev 7 nvmlDev 7 busId d7000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-11:20439:21002 [4] NCCL INFO ncclCommInitRank comm 0xaf912b0 rank 20 nranks 32 cudaDev 4 nvmlDev 4 busId 9d000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-4:25258:25850 [6] NCCL INFO ncclCommInitRank comm 0xc975a50 rank 6 nranks 32 cudaDev 6 nvmlDev 6 busId d4000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-11:20433:21004 [3] NCCL INFO ncclCommInitRank comm 0xb6db9a0 rank 19 nranks 32 cudaDev 3 nvmlDev 3 busId 71000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-4:25252:25840 [0] NCCL INFO ncclCommInitRank comm 0xb8487d0 rank 0 nranks 32 cudaDev 0 nvmlDev 0 busId 51000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-11:20430:21003 [0] NCCL INFO ncclCommInitRank comm 0xb91c2a0 rank 16 nranks 32 cudaDev 0 nvmlDev 0 busId 51000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-4:25253:25851 [1] NCCL INFO ncclCommInitRank comm 0x9c424f0 rank 1 nranks 32 cudaDev 1 nvmlDev 1 busId 56000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-11:20432:20993 [2] NCCL INFO ncclCommInitRank comm 0xc570a70 rank 18 nranks 32 cudaDev 2 nvmlDev 2 busId 6b000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-4:25256:25842 [4] NCCL INFO ncclCommInitRank comm 0xd64aae0 rank 4 nranks 32 cudaDev 4 nvmlDev 4 busId 9d000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-11:20431:20997 [1] NCCL INFO ncclCommInitRank comm 0xb3bba80 rank 17 nranks 32 cudaDev 1 nvmlDev 1 busId 56000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-11:20451:20994 [5] NCCL INFO ncclCommInitRank comm 0xa7deea0 rank 21 nranks 32 cudaDev 5 nvmlDev 5 busId a1000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-11:20454:20996 [7] NCCL INFO ncclCommInitRank comm 0xd14e080 rank 23 nranks 32 cudaDev 7 nvmlDev 7 busId d7000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-11:20453:20995 [6] NCCL INFO ncclCommInitRank comm 0x53c0e8c0 rank 22 nranks 32 cudaDev 6 nvmlDev 6 busId d4000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-37:17582:18688 [3] NCCL INFO ncclCommInitRank comm 0xc2f7af0 rank 27 nranks 32 cudaDev 3 nvmlDev 3 busId 71000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-37:17579:18681 [0] NCCL INFO ncclCommInitRank comm 0xb3448c0 rank 24 nranks 32 cudaDev 0 nvmlDev 0 busId 51000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-37:17588:18683 [7] NCCL INFO ncclCommInitRank comm 0x9d51d30 rank 31 nranks 32 cudaDev 7 nvmlDev 7 busId d7000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-37:17583:18682 [4] NCCL INFO ncclCommInitRank comm 0xac230a0 rank 28 nranks 32 cudaDev 4 nvmlDev 4 busId 9d000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-10:10130:11056 [1] NCCL INFO ncclCommInitRank comm 0xc7a68a0 rank 9 nranks 32 cudaDev 1 nvmlDev 1 busId 56000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-37:17580:18693 [1] NCCL INFO ncclCommInitRank comm 0xa19d0f0 rank 25 nranks 32 cudaDev 1 nvmlDev 1 busId 56000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-10:10132:11057 [3] NCCL INFO ncclCommInitRank comm 0xb1d2a00 rank 11 nranks 32 cudaDev 3 nvmlDev 3 busId 71000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-37:17585:18680 [6] NCCL INFO ncclCommInitRank comm 0xb5e39c0 rank 30 nranks 32 cudaDev 6 nvmlDev 6 busId d4000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-10:10136:11058 [7] NCCL INFO ncclCommInitRank comm 0xcc13770 rank 15 nranks 32 cudaDev 7 nvmlDev 7 busId d7000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-37:17581:18692 [2] NCCL INFO ncclCommInitRank comm 0xc3cf900 rank 26 nranks 32 cudaDev 2 nvmlDev 2 busId 6b000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-10:10134:11052 [5] NCCL INFO ncclCommInitRank comm 0xb3c2b30 rank 13 nranks 32 cudaDev 5 nvmlDev 5 busId a1000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-37:17584:18684 [5] NCCL INFO ncclCommInitRank comm 0xc2cc6c0 rank 29 nranks 32 cudaDev 5 nvmlDev 5 busId a1000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-10:10131:11054 [2] NCCL INFO ncclCommInitRank comm 0xb85d320 rank 10 nranks 32 cudaDev 2 nvmlDev 2 busId 6b000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-10:10135:11051 [6] NCCL INFO ncclCommInitRank comm 0xac91fe0 rank 14 nranks 32 cudaDev 6 nvmlDev 6 busId d4000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-10:10129:11055 [0] NCCL INFO ncclCommInitRank comm 0xcffa290 rank 8 nranks 32 cudaDev 0 nvmlDev 0 busId 51000 commId 0x9981ca1a6400aeae - Init COMPLETE
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO TUNER/Plugin: Plugin load returned 11 : libnccl-net.so: cannot open shared object file: No such file or directory : when loading libnccl-tuner.so
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO TUNER/Plugin: Using internal tuner plugin.
+SH-IDCA1404-10-140-54-10:10133:11053 [4] NCCL INFO ncclCommInitRank comm 0xc1f5080 rank 12 nranks 32 cudaDev 4 nvmlDev 4 busId 9d000 commId 0x9981ca1a6400aeae - Init COMPLETE
+[12/01 00:12:39 TiTok-Gen]: ***** Running training *****
+[12/01 00:12:39 TiTok-Gen]:   Num training steps = 1000000
+[12/01 00:12:39 TiTok-Gen]:   Gradient Accumulation steps = 1
+[12/01 00:12:39 TiTok-Gen]:   Instantaneous batch size per gpu = 32
+[12/01 00:12:39 TiTok-Gen]:   Total train batch size (w. parallel, distributed & accumulation) = 1024
+[12/01 00:12:39 TiTok-Gen]: Epoch 0/798 started.
+srun: got SIGCONT
+slurmstepd: error: *** JOB 6427919 ON SH-IDCA1404-10-140-54-4 CANCELLED AT 2025-12-01T00:13:37 ***
+srun: Job step aborted: Waiting up to 2 seconds for job step to finish.
+slurmstepd: error: *** STEP 6427919.0 ON SH-IDCA1404-10-140-54-4 CANCELLED AT 2025-12-01T00:13:37 ***
+srun: Easily find out why your job was killed by following the link below:
+	https://docs.phoenix.sensetime.com/FAQ/SlurmFAQ/Find-out-why-my-job-was-killed/
+W1201 00:13:37.278000 19710 site-packages/torch/distributed/elastic/agent/server/api.py:719] Received Signals.SIGTERM death signal, shutting down workers
+srun: forcing job termination
+W1201 00:13:37.271000 9024 site-packages/torch/distributed/elastic/agent/server/api.py:719] Received Signals.SIGTERM death signal, shutting down workers
+W1201 00:13:37.265000 17258 site-packages/torch/distributed/elastic/agent/server/api.py:719] Received Signals.SIGTERM death signal, shutting down workers
+W1201 00:13:37.292000 24498 site-packages/torch/distributed/elastic/agent/server/api.py:719] Received Signals.SIGTERM death signal, shutting down workers
+W1201 00:13:37.273000 9024 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 10129 closing signal SIGTERM
+W1201 00:13:37.280000 19710 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 20430 closing signal SIGTERM
+W1201 00:13:37.267000 17258 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 17579 closing signal SIGTERM
+W1201 00:13:37.294000 24498 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 25252 closing signal SIGTERM
+W1201 00:13:37.284000 19710 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 20431 closing signal SIGTERM
+W1201 00:13:37.277000 9024 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 10130 closing signal SIGTERM
+W1201 00:13:37.272000 17258 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 17580 closing signal SIGTERM
+W1201 00:13:37.300000 24498 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 25253 closing signal SIGTERM
+W1201 00:13:37.281000 9024 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 10131 closing signal SIGTERM
+W1201 00:13:37.288000 19710 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 20432 closing signal SIGTERM
+W1201 00:13:37.275000 17258 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 17581 closing signal SIGTERM
+W1201 00:13:37.291000 19710 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 20433 closing signal SIGTERM
+W1201 00:13:37.304000 24498 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 25254 closing signal SIGTERM
+W1201 00:13:37.278000 17258 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 17582 closing signal SIGTERM
+W1201 00:13:37.285000 9024 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 10132 closing signal SIGTERM
+W1201 00:13:37.307000 24498 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 25255 closing signal SIGTERM
+W1201 00:13:37.293000 19710 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 20439 closing signal SIGTERM
+W1201 00:13:37.289000 9024 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 10133 closing signal SIGTERM
+W1201 00:13:37.301000 19710 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 20451 closing signal SIGTERM

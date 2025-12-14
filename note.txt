@@ -1,11 +1,20 @@
 
+source ~/.bashrc
+nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.total,memory.used,memory.free --format=csv -l 1 > /mnt/petrelfs/jianglihan/my_code/quadtok/gpu.log &
 
+PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_tokenizer.py config=configs/training/single_stage/quadtok_ss256_vae.yaml
+
+PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_tokenizer.py config=configs/training/single_stage/quadtok_ss256_vae_repa.yaml
+
+PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_generator.py config=configs/training/generator/mar_quadtree.yaml
+
+CUDA_LAUNCH_BLOCKING=1 PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_generator.py config=configs/training/generator/gpt_quadtree_fixtree.yaml
 
 sudo TORCH_DISTRIBUTED_DEBUG=DETAIL WANDB_MODE=disabled accelerate launch --mixed_precision=bf16 --num_machines=1 --num_processes=1 --machine_rank=0 --main_process_ip=127.0.0.1 --main_process_port=2345 --same_network scripts/train_tokenizer.py config=configs/training/policy_stage/quadtok_ss256_vae_policy.yaml
 
 sudo TORCH_DISTRIBUTED_DEBUG=DETAIL WANDB_MODE=disabled accelerate launch --mixed_precision=bf16 --num_machines=1 --num_processes=1 --machine_rank=0 --main_process_ip=127.0.0.1 --main_process_port=2345 --same_network scripts/train_tokenizer.py config=configs/training/single_stage/quadtok_ss256_vq.yaml
 
-sudo TORCH_DISTRIBUTED_DEBUG=DETAIL WANDB_MODE=disabled accelerate launch --mixed_precision=bf16 --num_machines=1 --num_processes=1 --machine_rank=0 --main_process_ip=127.0.0.1 --main_process_port=2345 --same_network scripts/train_tokenizer.py config=configs/training/single_stage/quadtok_ss256_vq.yaml
+WANDB_MODE=disabled accelerate launch --mixed_precision=bf16 --num_machines=1 --num_processes=1 --machine_rank=0 --main_process_ip=127.0.0.1 --main_process_port=2345 --same_network scripts/train_tokenizer.py config=configs/training/single_stage/quadtok_ss256_vae.yaml
 
 sudo TORCH_DISTRIBUTED_DEBUG=DETAIL WANDB_MODE=disabled accelerate launch --mixed_precision=bf16 --num_machines=1 --num_processes=1 --machine_rank=0 --main_process_ip=127.0.0.1 --main_process_port=2345 --same_network scripts/train_generator.py config=configs/training/generator/mar_quadtree.yaml
 
@@ -96,8 +105,7 @@ sudo WANDB_MODE=disabled accelerate launch \
         --work_dir checkpoints/quadtok_sl256_vq_ts8_unifsample_300kgan_gd3_0.8-0.7 \
         --output_dir generated/quadtok_sl256
 
-
-sudo WANDB_MODE=disabled accelerate launch \
+WANDB_MODE=disabled accelerate launch \
     --mixed_precision=bf16 \
     --num_machines=1 \
     --num_processes=1 \
@@ -106,7 +114,7 @@ sudo WANDB_MODE=disabled accelerate launch \
     --main_process_port=12389 \
     --same_network \
     scripts/search_quadtree_tokenizer_parallel_batch.py \
-        --config_dir configs/training/policy_stage/quadtok_ss256_vq_pretokenization.yaml \
+        --config_dir configs/training/policy_stage/quadtok_ss256_vae_pretokenization.yaml \
         --output_dir visualization/vq_debug 
 
 
@@ -128,3 +136,17 @@ sudo WANDB_MODE=disabled accelerate launch \
 val_dataset = load_dataset("imagenet-1k",split="val",cache_dir="/mnt/cube/datasets/imagenet-val")
 
 python scripts/eval_external_tokenizer.py --config configs/external_model/sdxl_vae.yaml
+
+python scripts/inference_generator.py \
+    --config checkpoints/generator/maskgit_quadtree_fixtree/config.yaml \
+    --num_samples 1000 \
+    --batch_size 32 \
+    --guidance_scale 8.0 \
+    --guidance_decay power-cosine
+
+accelerate launch scripts/inference_generator.py \
+    --config checkpoints/generator/mar_quadtree_base/config.yaml \
+    --num_samples 1000 \
+    --batch_size 2 \
+    --guidance_scale 3.0 \
+    --guidance_decay constant

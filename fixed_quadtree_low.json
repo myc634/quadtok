@@ -1,0 +1,2427 @@
+{
+  "status_data": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1
+  ],
+  "final_tree": {
+    "0": [
+      {
+        "patch_index": 0,
+        "lod_level": 0
+      }
+    ],
+    "1": [
+      {
+        "patch_index": 0,
+        "lod_level": 1
+      },
+      {
+        "patch_index": 1,
+        "lod_level": 1
+      },
+      {
+        "patch_index": 2,
+        "lod_level": 1
+      },
+      {
+        "patch_index": 3,
+        "lod_level": 1
+      }
+    ],
+    "2": [
+      {
+        "patch_index": 0,
+        "lod_level": 2
+      },
+      {
+        "patch_index": 1,
+        "lod_level": 2
+      },
+      {
+        "patch_index": 4,
+        "lod_level": 2
+      },
+      {
+        "patch_index": 5,
+        "lod_level": 2
+      },
+      {
+        "patch_index": 2,
+        "lod_level": 2
+      },
+      {
+        "patch_index": 3,
+        "lod_level": 2
+      },
+      {
+        "patch_index": 6,
+        "lod_level": 2
+      },
+      {
+        "patch_index": 7,
+        "lod_level": 2
+      },
+      {
+        "patch_index": 8,
+        "lod_level": 2
+      },
+      {
+        "patch_index": 9,
+        "lod_level": 2
+      },
+      {
+        "patch_index": 12,
+        "lod_level": 2
+      },
+      {
+        "patch_index": 13,
+        "lod_level": 2
+      },
+      {
+        "patch_index": 10,
+        "lod_level": 2
+      },
+      {
+        "patch_index": 11,
+        "lod_level": 2
+      },
+      {
+        "patch_index": 14,
+        "lod_level": 2
+      },
+      {
+        "patch_index": 15,
+        "lod_level": 2
+      }
+    ],
+    "3": [
+      {
+        "patch_index": 0,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 1,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 8,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 9,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 2,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 3,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 10,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 11,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 16,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 17,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 24,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 25,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 18,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 19,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 26,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 27,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 4,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 5,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 12,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 13,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 6,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 7,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 14,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 15,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 20,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 21,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 28,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 29,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 22,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 23,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 30,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 31,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 32,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 33,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 40,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 41,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 34,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 35,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 42,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 43,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 48,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 49,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 56,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 57,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 50,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 51,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 58,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 59,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 36,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 37,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 44,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 45,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 38,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 39,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 46,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 47,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 52,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 53,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 60,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 61,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 54,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 55,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 62,
+        "lod_level": 3
+      },
+      {
+        "patch_index": 63,
+        "lod_level": 3
+      }
+    ],
+    "4": [
+      {
+        "patch_index": 64,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 65,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 80,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 81,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 96,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 97,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 112,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 113,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 70,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 71,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 86,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 87,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 100,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 101,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 116,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 117,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 12,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 13,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 28,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 29,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 14,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 15,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 30,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 31,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 74,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 75,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 90,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 91,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 108,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 109,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 124,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 125,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 162,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 163,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 178,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 179,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 228,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 229,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 244,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 245,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 170,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 171,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 186,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 187,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 174,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 175,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 190,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 191,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 206,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 207,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 222,
+        "lod_level": 4
+      },
+      {
+        "patch_index": 223,
+        "lod_level": 4
+      }
+    ],
+    "5": [
+      {
+        "patch_index": 256,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 257,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 288,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 289,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 258,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 259,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 290,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 291,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 320,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 321,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 352,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 353,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 322,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 323,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 354,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 355,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 384,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 385,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 416,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 417,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 448,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 449,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 480,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 481,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 334,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 335,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 366,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 367,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 392,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 393,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 424,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 425,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 394,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 395,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 426,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 427,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 458,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 459,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 490,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 491,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 24,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 25,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 56,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 57,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 26,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 27,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 58,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 59,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 88,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 89,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 120,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 121,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 90,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 91,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 122,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 123,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 28,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 29,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 60,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 61,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 92,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 93,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 124,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 125,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 94,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 95,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 126,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 127,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 340,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 341,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 372,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 373,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 410,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 411,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 442,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 443,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 474,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 475,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 506,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 507,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 710,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 711,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 742,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 743,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 904,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 905,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 936,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 937,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 968,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 969,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 1000,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 1001,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 660,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 661,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 692,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 693,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 662,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 663,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 694,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 695,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 670,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 671,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 702,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 703,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 732,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 733,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 764,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 765,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 734,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 735,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 766,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 767,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 796,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 797,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 828,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 829,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 798,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 799,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 830,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 831,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 862,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 863,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 894,
+        "lod_level": 5
+      },
+      {
+        "patch_index": 895,
+        "lod_level": 5
+      }
+    ]
+  }
+}

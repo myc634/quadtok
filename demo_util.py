@@ -71,9 +71,9 @@ def sample_fn(generator,
     tokenizer.eval()
     if labels is None:
         # goldfish, chicken, tiger, cat, hourglass, ship, dog, race car, airliner, teddy bear, random
-        # labels = [1, 7, 282, 604, 724, 179, 751, 404, 850, torch.randint(0, 999, size=(1,))]
+        labels = [1, 7, 207, 604, 724, 179, 751, 404, 850, torch.randint(0, 999, size=(1,))]
         # labels = [207, 250, torch.randint(0, 999, size=(1,)), torch.randint(0, 999, size=(1,))]
-        labels = [207, torch.randint(0, 999, size=(1,))]
+        # labels = [207, torch.randint(0, 999, size=(1,))]
 
     if not isinstance(labels, torch.Tensor):
         labels = torch.LongTensor(labels).to(device)
@@ -89,6 +89,9 @@ def sample_fn(generator,
 
     if isinstance(generated_tokens, tuple):
         generated_tokens, tree = generated_tokens
+        if tokenizer.quantize_mode == "vq":
+            bs, len = generated_tokens.shape
+            generated_tokens = tokenizer.quantize.get_codebook_entry(generated_tokens.flatten(0, 1).long()).view(bs, len, -1)
         generated_image = tokenizer.decoder._forward_optimize(generated_tokens, tree)
     else:
         generated_image = tokenizer.decode_tokens(

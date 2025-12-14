@@ -25,7 +25,7 @@ from modeling.modules import ReconstructionLoss_Reward
 from utils.train_utils import create_model, create_dataloader, auto_resume, create_evaluator
 from modeling.utils import build_quadtree, get_ordered_nodes, build_tree_from_decision_nodes, build_quadtree, build_random_quadtree, build_probabilistic_quadtree
 from modeling.modules.losses import ReconstructionLoss_Reward
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import time
 
 GAIN_THRESHOLD = 0.0
@@ -51,74 +51,6 @@ def image_generator(config, logger, accelerator):
 class Namespace(SimpleNamespace):
     def get(self, key, default=None):
         return getattr(self, key, default)
-
-def visualize_lod_maps_with_image(image, reconstruction, lod_maps_dict, save_path, patch_info):
-    """
-    Visualize original image, reconstruction, LOD binary maps, and token heat map.
-    
-    Color coding for LOD maps:
-    - WHITE (value=1) = Activated node (this patch is selected)
-    - BLACK (value=0) = Not activated (this patch is skipped)
-    
-    Args:
-        image: Original image tensor (1, 3, H, W)
-        reconstruction: Reconstructed image tensor (1, 3, H, W)
-        lod_maps_dict: Dictionary mapping lod_idx to binary map (1D tensor)
-        save_path: Path to save the visualization
-    """
-    # Convert image to numpy
-    if isinstance(image, torch.Tensor):
-        img_np = image.squeeze(0).permute(1, 2, 0).cpu().numpy()
-    else:
-        img_np = image.squeeze(0).permute(1, 2, 0).numpy()
-    
-    img_np = np.clip(img_np, 0, 1)
-
-    if isinstance(reconstruction, torch.Tensor):
-        recon_np = reconstruction.squeeze(0).permute(1, 2, 0).cpu().numpy()
-    else:
-        recon_np = reconstruction.squeeze(0).permute(1, 2, 0).numpy()
-    
-    recon_np = np.clip(recon_np, 0, 1)
-    
-    # Count how many LODs we have
-    num_lods = len(lod_maps_dict)
-    
-    # Create subplots: 1 for image + 1 for reconstruction + num_lods for LOD maps + 1 for token heat map
-    fig, axes = plt.subplots(1, num_lods + 2, figsize=(4 * (num_lods + 3), 4))
-    
-    # Plot original image
-    axes[0].imshow(img_np)
-    axes[0].set_title('Original Image', fontsize=12)
-    axes[0].axis('off')
-
-    axes[1].imshow(recon_np)
-    axes[1].set_title('Reconstruction Image', fontsize=12)
-    axes[1].axis('off')
-
-    # Plot each LOD map
-    for idx, (lod_idx, lod_map) in enumerate(sorted(lod_maps_dict.items())):
-        axes_idx = idx + 2
-        
-        patch_size = patch_info['patch_size_list'][lod_idx]
-        lod_nodes = patch_info['lod_node_mapping'][lod_idx]
-        num_patches_per_side = patch_info['num_patches_per_side'][lod_idx]
-
-        binary_map = torch.zeros(num_patches_per_side, num_patches_per_side, dtype=torch.int64)
-
-        for node in lod_map:
-            row, col = divmod(node.patch_index, num_patches_per_side)
-            binary_map[row, col] = 1
-
-        axes[axes_idx].imshow(binary_map, cmap='gray', interpolation='nearest', vmin=0, vmax=1)
-        axes[axes_idx].set_title(f'Binary Map LOD {lod_idx} ({int(binary_map.sum())} nodes)', fontsize=12)
-        axes[axes_idx].axis('off')
-        axes[axes_idx].grid(True, alpha=0.3)
-
-    plt.suptitle('Quadtree Activation Maps & Token Heat Map', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    plt.close(fig)
 
 
 def calculate_patch_psnr_gain(original_image, base_recon, test_recon, parent_patch_idx, lod_idx, num_patches_per_side, patch_size_list):
@@ -360,8 +292,9 @@ def optimize_tree_rule_based_gain(
 
             keep_mask = (advantage > 0)
             num_to_keep = torch.sum(keep_mask).item()
-
-            top_gains, top_indices = torch.topk(gains_for_image_b, k=min(num_to_keep, len(gains_for_image_b)))
+            if lod_idx == 4:
+                num_to_keep = int(num_to_keep * 0.25)
+            top_gains, top_indices = torch.topk(gains_for_image_b, k=min(int(num_to_keep), len(gains_for_image_b)))
             top_patches = patches_for_image_b[top_indices]
             list_of_top_parents.append(set(top_patches.cpu().numpy()))
             
@@ -506,6 +439,7 @@ def main(args):
             image_latent = model.encode(images)
 
             z_batch = model.selector._forward_optimize(image_latent, final_trees)
+            token_num += z_batch.shape[-1]
             if model.quantize_mode == "vae":
                 z_quantized_batch = model.quantize(z_batch).sample()
             elif model.quantize_mode == "vq":
@@ -522,7 +456,9 @@ def main(args):
             evaluator.update(images, recon_batch, None)
         elif model.quantize_mode == "vq":
             evaluator.update(images, recon_batch, result_dict["min_encoding_indices"])
-
+        if batch_idx > 1000:
+            break
+    print(token_num / count)
     print(evaluator.result())
         # breakpoint()
         # for viz ONLY !!!!!

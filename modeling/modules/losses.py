@@ -28,7 +28,9 @@ from .perceptual_loss import PerceptualLoss
 from .discriminator import NLayerDiscriminator
 
 from modeling.diffusion import create_diffusion
-from modeling.modules.blocks import SimpleMLPAdaLN
+from modeling.modules.blocks import SimpleMLPAdaLN, SimpleMLPAdaLNBox
+from modeling.modules.repa_models import load_encoders, preprocess_raw_image
+
 
 def get_linear_decay_entropy_weight(
     global_step: int, 
@@ -80,6 +82,12 @@ def compute_lecam_loss(
     lecam_loss = torch.mean(torch.pow(F.relu(logits_real_mean - ema_logits_fake_mean), 2))
     lecam_loss += torch.mean(torch.pow(F.relu(ema_logits_real_mean - logits_fake_mean), 2))
     return lecam_loss
+
+def mean_flat(x):
+    """
+    Take the mean over all non-batch dimensions.
+    """
+    return torch.mean(x, dim=list(range(1, len(x.size()))))
 
 class SpatiallyWeightedMSELoss(nn.Module):
     def __init__(self, kernel_size=16, temperature=1.0, reduction='mean'):
@@ -383,8 +391,7 @@ class ReconstructionLoss_Single_Stage(ReconstructionLoss_Stage2):
         elif self.quantize_mode == "vae":
             # Compute kl loss.
             reconstruction_loss = reconstruction_loss / torch.exp(self.logvar)
-            posteriors = extra_result_dict
-            kl_loss = posteriors.kl()
+            kl_loss = extra_result_dict["posteriors"].kl()
             kl_loss = torch.sum(kl_loss) / kl_loss.shape[0]
             total_loss = (
                 reconstruction_loss
@@ -407,6 +414,117 @@ class ReconstructionLoss_Single_Stage(ReconstructionLoss_Stage2):
 
         return total_loss, loss_dict
 
+
+class ReconstructionLoss_Single_Stage_Repa(ReconstructionLoss_Stage2):
+    def __init__(
+        self,
+        config
+    ):
+        super().__init__(config)
+        loss_config = config.losses
+        self.quantize_mode = config.model.vq_model.get("quantize_mode", "vq")
+
+        self.repa_param = loss_config.repa_param
+        self.encoder = load_encoders(self.repa_param.model_type)
+        
+        if self.quantize_mode == "vae":
+            self.kl_weight = loss_config.get("kl_weight", 1e-6)
+            logvar_init = loss_config.get("logvar_init", 0.0)
+            self.logvar = nn.Parameter(torch.ones(size=()) * logvar_init, requires_grad=False)
+
+    def _forward_generator(self,
+                           inputs: torch.Tensor,
+                           reconstructions: torch.Tensor,
+                           extra_result_dict: Mapping[Text, torch.Tensor],
+                           global_step: int
+                           ) -> Tuple[torch.Tensor, Mapping[Text, torch.Tensor]]:
+        """Generator training step."""
+        inputs = inputs.contiguous()
+        reconstructions = reconstructions.contiguous()
+        if self.reconstruction_loss == "l1":
+            reconstruction_loss = F.l1_loss(inputs, reconstructions, reduction="mean")
+        elif self.reconstruction_loss == "l2":
+            reconstruction_loss = F.mse_loss(inputs, reconstructions, reduction="mean")
+        else:
+            raise ValueError(f"Unsuppored reconstruction_loss {self.reconstruction_loss}")
+        reconstruction_loss *= self.reconstruction_weight
+
+        # Compute perceptual loss.
+        perceptual_loss = self.perceptual_loss(inputs, reconstructions).mean()
+
+        # Compute discriminator loss.
+        generator_loss = torch.zeros((), device=inputs.device)
+        discriminator_factor = self.discriminator_factor if self.should_discriminator_be_trained(global_step) else 0
+        d_weight = 1.0
+        if discriminator_factor > 0.0 and self.discriminator_weight > 0.0:
+            # Disable discriminator gradients.
+            for param in self.discriminator.parameters():
+                param.requires_grad = False
+            logits_fake = self.discriminator(reconstructions)
+            generator_loss = -torch.mean(logits_fake)
+
+        d_weight *= self.discriminator_weight
+
+        # compute repa loss
+        repa_input = preprocess_raw_image(inputs, self.repa_param.model_type)
+        z = self.encoder.forward_features(repa_input)['x_norm_patchtokens']
+
+        if self.quantize_mode == "vq":
+            # Compute quantizer loss.
+            quantizer_loss = extra_result_dict["quantizer_loss"]
+            total_loss = (
+                reconstruction_loss
+                + self.perceptual_weight * perceptual_loss
+                + self.quantizer_weight * quantizer_loss
+                + d_weight * discriminator_factor * generator_loss
+            )
+            loss_dict = dict(
+                total_loss=total_loss.clone().detach(),
+                reconstruction_loss=reconstruction_loss.detach(),
+                perceptual_loss=(self.perceptual_weight * perceptual_loss).detach(),
+                quantizer_loss=(self.quantizer_weight * quantizer_loss).detach(),
+                weighted_gan_loss=(d_weight * discriminator_factor * generator_loss).detach(),
+                discriminator_factor=torch.tensor(discriminator_factor),
+                commitment_loss=extra_result_dict["commitment_loss"].detach(),
+                codebook_loss=extra_result_dict["codebook_loss"].detach(),
+                d_weight=d_weight,
+                gan_loss=generator_loss.detach(),
+            )
+        elif self.quantize_mode == "vae":
+            # Compute kl loss.
+            reconstruction_loss = reconstruction_loss / torch.exp(self.logvar)
+
+            kl_loss = extra_result_dict["posteriors"].kl()
+            kl_loss = torch.sum(kl_loss) / kl_loss.shape[0]
+
+            # for j, (z_j, z_tilde_j) in enumerate(zip(z, extra_result_dict["zs"])):
+            zs_norm = torch.nn.functional.normalize(extra_result_dict["zs"], dim=-1) 
+            z_norm = torch.nn.functional.normalize(z, dim=-1) 
+            dot_product = (zs_norm * z_norm).sum(dim=-1) 
+            repa_loss = mean_flat(1 - dot_product).mean()
+
+            total_loss = (
+                reconstruction_loss
+                + self.perceptual_weight * perceptual_loss
+                + self.kl_weight * kl_loss
+                + d_weight * discriminator_factor * generator_loss
+                + self.repa_param.weight * repa_loss
+            )
+            loss_dict = dict(
+                total_loss=total_loss.clone().detach(),
+                reconstruction_loss=reconstruction_loss.detach(),
+                perceptual_loss=(self.perceptual_weight * perceptual_loss).detach(),
+                kl_loss=(self.kl_weight * kl_loss).detach(),
+                repa_loss=(repa_loss).detach(),
+                weighted_gan_loss=(d_weight * discriminator_factor * generator_loss).detach(),
+                discriminator_factor=torch.tensor(discriminator_factor),
+                d_weight=d_weight,
+                gan_loss=generator_loss.detach(),
+            )
+        else:
+            raise NotImplementedError
+
+        return total_loss, loss_dict
 
 class ReconstructionLoss_Reward(torch.nn.Module):
     def __init__(
@@ -486,7 +604,7 @@ class MLMLoss(torch.nn.Module):
         loss = (loss * loss_weights).sum() / (loss_weights.sum() + 1e-8)
         # we only compute correct tokens on masked tokens
         correct_tokens = ((torch.argmax(inputs, dim=1) == targets) * weights).sum(dim=1) / (weights.sum(1) + 1e-8)
-        return loss, {"loss": loss, "correct_tokens": correct_tokens.mean()}
+        return loss, {"total_loss": loss, "correct_tokens": correct_tokens.mean()}
     
 
 class ARLoss(torch.nn.Module):
@@ -503,7 +621,7 @@ class ARLoss(torch.nn.Module):
         shift_labels = shift_labels.to(shift_logits.device)
         loss = self.criterion(shift_logits, shift_labels)
         correct_tokens = (torch.argmax(shift_logits, dim=1) == shift_labels).sum(dim=1) / shift_labels.size(1)
-        return loss, {"loss": loss, "correct_tokens": correct_tokens.mean()}
+        return loss, {"total_loss": loss, "correct_tokens": correct_tokens.mean()}
     
 
 class DiffLoss(nn.Module):
@@ -524,9 +642,9 @@ class DiffLoss(nn.Module):
         self.train_diffusion = create_diffusion(timestep_respacing="", noise_schedule="cosine")
         self.gen_diffusion = create_diffusion(timestep_respacing=config.losses.get("num_sampling_steps", "100"), noise_schedule="cosine")
 
-    def forward(self, target, z, mask=None):
+    def forward(self, target, z, pos, mask=None):
         t = torch.randint(0, self.train_diffusion.num_timesteps, (target.shape[0],), device=target.device)
-        model_kwargs = dict(c=z)
+        model_kwargs = dict(c=z, pos=pos)
         loss_dict = self.train_diffusion.training_losses(self.net, target, t, model_kwargs)
         loss = loss_dict["loss"]
         if mask is not None:
@@ -538,16 +656,16 @@ class DiffLoss(nn.Module):
 
         return loss.mean(), loss_dict
 
-    def sample(self, z, temperature=1.0, cfg=1.0):
+    def sample(self, z, pos, temperature=1.0, cfg=1.0):
         # diffusion loss sampling
         if not cfg == 1.0:
             noise = torch.randn(z.shape[0] // 2, self.in_channels).cuda()
             noise = torch.cat([noise, noise], dim=0)
-            model_kwargs = dict(c=z, cfg_scale=cfg)
+            model_kwargs = dict(c=z, pos=pos, cfg_scale=cfg)
             sample_fn = self.net.forward_with_cfg
         else:
             noise = torch.randn(z.shape[0], self.in_channels).cuda()
-            model_kwargs = dict(c=z)
+            model_kwargs = dict(c=z, pos=pos)
             sample_fn = self.net.forward
         sampled_token_latent = self.gen_diffusion.p_sample_loop(
             sample_fn, noise.shape, noise, clip_denoised=False, model_kwargs=model_kwargs, progress=False,

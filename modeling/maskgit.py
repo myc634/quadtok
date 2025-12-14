@@ -36,6 +36,9 @@ from pathlib import Path
 from modeling.modules.base_model import BaseModel
 from modeling.modules.blocks import UViTBlock
 
+from modeling.utils import QuadTreeNode
+import copy
+
 
 class ImageBert(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2304.12244"], pipeline_tag="text_to_image", license="mit"):
     def __init__(self, config):
@@ -70,9 +73,8 @@ class ImageBert(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2304.12244"], pipe
             position_embedding_type="absolute",
             use_cache=True
         ), add_pooling_layer=False)
-        self.model.lm_head = nn.Linear(self.hidden_size, self.target_codebook_size, bias=True)
-        
         self.model.post_init()
+        self.model.lm_head = nn.Linear(self.hidden_size, self.target_codebook_size, bias=True)
 
     def _save_pretrained(self, save_directory: Path) -> None:
         """Save weights and config to a local directory."""
@@ -115,7 +117,25 @@ class ImageBert(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2304.12244"], pipe
                  guidance_scale_pow=3.0,
                  randomize_temperature=4.5,
                  softmax_temperature_annealing=False,
-                 num_sample_steps=8):
+                 num_sample_steps=128):
+        with open("/mnt/petrelfs/jianglihan/my_code/quadtok/fixed_quadtree_low.json", 'r') as f:
+            tree_dict_json = json.load(f)
+        final_tree_dict = {}
+        lod_incides = []
+        for lod_idx, node_dict in tree_dict_json['final_tree'].items():
+            nodes = []
+            for node_info in node_dict:
+                node = QuadTreeNode(
+                    patch_index=node_info['patch_index'],
+                    lod_level=node_info['lod_level']
+                )
+                nodes.append(node)
+                lod_incides.append(int(lod_idx))
+            final_tree_dict[int(lod_idx)] = nodes
+        lod_incides = torch.tensor(lod_incides, device=condition.device, dtype=torch.long)
+
+        tree_list = [copy.deepcopy(final_tree_dict) for _ in range(condition.shape[0])]
+
         if guidance_decay not in ["constant", "linear", "power-cosine"]:
             # contstant: constant guidance scale
             # linear: linear increasing the guidance scale as in MUSE
@@ -190,7 +210,8 @@ class ImageBert(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2304.12244"], pipe
 
             if guidance_decay == "linear":
                 cfg_scale = ratio * guidance_scale
-        return ids
+
+        return ids, tree_list
 
     def masking_input_tokens(self, input_tokens):
         batch_size, seq_len = input_tokens.shape

@@ -1,6 +1,7 @@
 import random
 import numpy as np
-from collections import deque
+from collections import deque, defaultdict
+# from collections import defaultdict
 
 
 class QuadTreeNode:
@@ -335,3 +336,21 @@ def build_tree_from_decision_nodes(current_decision_nodes, patches_per_side_list
             
     # The root node now contains the full hierarchy
     return root_node
+
+
+def tree_to_decision_nodes_dict(tree_root, num_lod):
+    """
+    Convert tree root to decision_nodes dictionary format.
+    Returns: dict {lod_idx: [list of QuadTreeNode]}
+    """
+    decision_nodes = defaultdict(list)
+    queue = [tree_root]
+    
+    while queue:
+        node = queue.pop(0)
+        if node.lod_level < num_lod:
+            decision_nodes[node.lod_level].append(node)
+        for child in node.children:
+            queue.append(child)
+    
+    return dict(decision_nodes)

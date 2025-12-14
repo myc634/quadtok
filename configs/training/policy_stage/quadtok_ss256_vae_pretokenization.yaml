@@ -1,0 +1,84 @@
+experiment:
+    project: "dynamic_tokenizer"
+    name: "quadtok_sl256_vae_allps16_rlpolicy_weightinit"
+    output_dir: "checkpoints/quadtok_sl256_vae_allps16_rlpolicy_weightinit"
+    max_train_examples: 685_800_000. #  Converge at 300_000
+    save_every: 50_000
+    eval_every: 50_000
+    generate_every: 500
+    log_every: 5
+    log_grad_norm_every: 1_000
+    resume: False
+    explanation: #"S-256 size TiTok model No Legacy"
+    init_weight: "pretrained_weight/quadtok-vae-pretrained.bin"
+
+model:
+    type: "quadtok"
+    grad_checkpointing: False
+    train_policy: False
+    guaranteed_depth: 3
+    vq_model:
+      quantize_mode: vae
+      # vit arch
+      vit_enc_model_size: "small"
+      vit_dec_model_size: "small"
+      vit_enc_patch_size: 16
+      vit_dec_patch_size: 16
+      decoder_token_size: 256
+      token_size: 16
+    selector:
+      token_size: 16
+      num_patch_side_list: [1, 2, 4, 8, 16, 32]
+      patch_size_list: [16, 16, 16, 16, 16, 8]
+      gumbel_start_temp: 2.0
+      gumbel_end_temp: 0.01
+      gumbel_anneal_steps: 15000
+
+
+losses:
+  discriminator_start: 300000
+  quantizer_weight: 1.0
+  discriminator_factor: 1.0
+  discriminator_weight: 0.1
+  perceptual_loss: lpips-convnext_s-1.0-0.1
+  perceptual_weight: 1.1
+  reconstruction_loss: l2
+  reconstruction_weight: 1.0
+  lecam_regularization_weight: 0.001
+
+dataset:
+    type: "simple_image"
+    params:
+        train_shards_path_or_url: "pipe:rclone cat hoss:jianglihan/data/imagenet/imagenet-train-{000000..000070}.tar"
+        eval_shards_path_or_url: "pipe:rclone cat hoss:jianglihan/data/imagenet/imagenet-val-{000000..000049}.tar"
+        num_workers_per_gpu: 12
+    preprocessing:
+        resize_shorter_edge: 256
+        crop_size: 256
+        random_crop: True
+        random_flip: True
+        res_ratio_filtering: True
+
+optimization:
+    per_image_lr: 5e-4
+    per_image_steps: 50
+    gumbel_tau: 1.0
+
+lr_scheduler:
+    scheduler: "cosine"
+    params:
+        learning_rate: ${optimizer.params.learning_rate}
+        warmup_steps: 100
+        end_lr: 1e-5
+
+training:
+    gradient_accumulation_steps: 1
+    per_gpu_batch_size: 1
+    mixed_precision: "bf16"
+    enable_tf32: True
+    enable_wandb: True
+    use_ema: True
+    seed: 42
+    max_train_steps: 1_000_000
+    num_generated_images: 2
+    max_grad_norm: 1.0

@@ -1,0 +1,128 @@
+experiment:
+    project: "dynamic_tokenizer_generation"
+    name: "mar_quadtree_fixtree_blockcausal"
+    output_dir: "checkpoints/generator/mar_quadtree_fixtree_blockcausal"
+    # output_dir: "checkpoints/generator/debug"
+    max_train_examples: 1_281_167
+    save_every: 10_000
+    eval_every: 50_000
+    generate_every: 1000
+    log_every: 50
+    log_grad_norm_every: 1_000
+    resume: False
+    # init_weight: "checkpoints/generator/mar_quadtree_base/checkpoint-120000/ema_model/pytorch_model.bin"
+    
+
+tokenizer:
+    type: "quadtok"
+    tokenizer_ckpt_dir: "checkpoints/quadtok_sl256_vae_ts16-expandprob34/checkpoint-300000/ema_model/pytorch_model.bin"
+    vae_embed_dim: 16 # keep the same with "token_size" in "vq_model"
+
+
+model:
+    type: "quadtok"
+    grad_checkpointing: True
+    vq_model:
+      quantize_mode: vae
+      # vit arch
+      vit_enc_model_size: "small"
+      vit_dec_model_size: "small"
+      vit_enc_patch_size: 16
+      vit_dec_patch_size: 16
+      decoder_token_size: 256
+      token_size: 16
+    selector:
+      token_size: 16
+      num_patch_side_list: [1, 2, 4, 8, 16, 32] 
+      patch_size_list: [16, 16, 16, 16, 16, 8]
+    
+
+    generator_type: "mar-quadtree"
+
+    generator:
+        model_size: "base"
+        patch_size: 1
+
+        image_size: 256
+        num_patch_side_list: [1, 2, 4, 8, 16, 32]
+        patch_size_list: [16, 16, 16, 16, 16, 8]
+        guaranteed_depth: 3  # All nodes with lod <= 3 are guaranteed to exist
+
+        class_num: 1000
+        label_drop_prob: 0.1
+
+        mask_ratio_min: 0.7
+        buffer_size: 1
+
+        proj_dropout: 0.1
+        attn_dropout: 0.1
+
+        diffusion_batch_mul: 4 # 4
+
+        # generation params
+        guidance_scale: 2.0
+        guidance_decay: "linear"
+        randomize_temperature: 1.0
+        num_iter: 256
+
+
+losses:
+    model_embed_dim: 768
+    diffloss_d: 8
+    diffloss_w: 1280
+    expand_loss_weight: 1.0
+
+
+# dataset:
+#     type: "pre_tokenized"
+#     params:
+#         shards_path: "pipe:rclone cat hoss:jianglihan/data/imagenet-tokenized/imagenet-train-{000000..000070}.tar"
+#         num_workers_per_gpu: 12
+#      # unused in pre_tokenized dataset
+#     preprocessing:
+#         resize_shorter_edge: 256
+#         crop_size: 256
+#         random_crop: True
+#         random_flip: True
+#         res_ratio_filtering: True
+
+dataset:
+    type: "simple_image"
+    params:
+        train_shards_path_or_url: "pipe:rclone cat hoss:jianglihan/data/imagenet/imagenet-train-{000000..000070}.tar"
+        eval_shards_path_or_url: "pipe:rclone cat hoss:jianglihan/data/imagenet/imagenet-val-{000000..000049}.tar"
+        num_workers_per_gpu: 12
+    preprocessing:
+        resize_shorter_edge: 256
+        crop_size: 256
+        random_crop: True
+        random_flip: True
+        res_ratio_filtering: True
+
+optimizer:
+    name: adamw 
+    params:
+        learning_rate: 1e-4
+        beta1: 0.9
+        beta2: 0.96
+        weight_decay: 0.03
+
+
+lr_scheduler:
+    scheduler: "cosine"
+    params:
+        learning_rate: ${optimizer.params.learning_rate}
+        warmup_steps: 10_000
+        end_lr: 1e-5
+
+
+training:
+    gradient_accumulation_steps: 1
+    per_gpu_batch_size: 64 # 8 GPU, total batch size 1024
+    mixed_precision: "bf16"
+    enable_tf32: True
+    enable_wandb: True
+    use_ema: True
+    seed: 42
+    max_train_steps: 1000_000
+    max_grad_norm: 1.0

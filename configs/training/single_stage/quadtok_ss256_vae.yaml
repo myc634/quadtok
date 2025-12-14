@@ -1,14 +1,14 @@
 experiment:
     project: "dynamic_tokenizer"
-    name: "quadtok_sl256_vae_ts16_unifsample_300kgan_gd3_0.7-0.7"
-    output_dir: "checkpoints/debug" #"checkpoints/quadtok_sl256_vae_ts16_unifsample_300kgan_gd3_0.7-0.7"
+    name: "quadtok_sl256_vae_ts16-expandprob34-new"
+    output_dir: "checkpoints/quadtok_sl256_vae_ts16-expandprob34-new"
     max_train_examples: 685_800_000. #  Converge at 300_000
     save_every: 50_000
     eval_every: 50_000
     generate_every: 500
     log_every: 50
     log_grad_norm_every: 1_000
-    resume: False
+    resume: True
     explanation: #"S-256 size TiTok model No Legacy"
     init_weight: #"pretrained_weight/titok_sl256_vq8k/model.safetensors"
 
@@ -32,7 +32,7 @@ model:
 
 
 losses:
-    discriminator_start: 300_000
+    discriminator_start: 200_000
     quantizer_weight: 1.0
     discriminator_factor: 1.0
     discriminator_weight: 0.1
@@ -47,8 +47,8 @@ losses:
 dataset:
     type: "simple_image"
     params:
-        train_shards_path_or_url: "/mnt/shared-storage-user/idc2-shared/dataset/preprocess/imagenet/imagenet-train-{000000..000070}.tar"
-        eval_shards_path_or_url: "/mnt/shared-storage-user/idc2-shared/dataset/preprocess/imagenet/imagenet-val-{000000..000049}.tar"
+        train_shards_path_or_url: "pipe:rclone cat hoss:jianglihan/data/imagenet/imagenet-train-{000000..000070}.tar"
+        eval_shards_path_or_url: "pipe:rclone cat hoss:jianglihan/data/imagenet/imagenet-val-{000000..000049}.tar"
         num_workers_per_gpu: 12
     preprocessing:
         resize_shorter_edge: 256
@@ -75,7 +75,7 @@ lr_scheduler:
 
 training:
     gradient_accumulation_steps: 1
-    per_gpu_batch_size: 64
+    per_gpu_batch_size: 32
     mixed_precision: "bf16"
     enable_tf32: True
     enable_wandb: True

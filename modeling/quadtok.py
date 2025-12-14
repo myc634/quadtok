@@ -51,6 +51,8 @@ class QuadTok(BaseModel):
         self.num_patch_side_list = config.model.selector.num_patch_side_list
         self.patch_size_list = config.model.selector.patch_size_list
 
+        self.repa_param = config.losses.get("repa_param", None)
+
         self.train_policy = config.model.get("train_policy", False)
         if not self.train_policy:
             self.apply(self._init_weights)
@@ -104,15 +106,20 @@ class QuadTok(BaseModel):
     def _forward_reconstruction(self, x):
         latent_feats = self.encode(x)
         # guaranteed_depth=1, expansion_probs=[0.8, 0.7, 0.6, 0.5] guaranteed_depth=2, expansion_probs=[0.7, 0.6, 0.5]
-        tree_structure = build_probabilistic_quadtree(self.num_patch_side_list, guaranteed_depth=3, expansion_probs=[0.7, 0.5]) # 
-        z = self.selector(latent_feats, tree_structure)
+        tree_structure = build_probabilistic_quadtree(self.num_patch_side_list, guaranteed_depth=3, expansion_probs=[0.3, 0.4])
+        if self.repa_param is not None: # 
+            z, zs = self.selector(latent_feats, tree_structure)
+        else:
+            z = self.selector(latent_feats, tree_structure)
+            zs = None
 
         if self.quantize_mode == "vq":
             z_quantized, result_dict = self.quantize(z)
         elif self.quantize_mode == "vae":
+            result_dict = dict(zs=zs)
             posteriors = self.quantize(z)
             z_quantized = posteriors.sample()
-            result_dict = posteriors
+            result_dict["posteriors"] = posteriors
         decoded = self.decode(z_quantized.permute(0, 3, 2, 1).squeeze(2).contiguous(), tree_structure)
         
         return decoded, result_dict
@@ -143,11 +150,7 @@ class QuadTok(BaseModel):
         return decoded, result_dict, 
     
     def forward(self, x, policy_output=None):
-
-        if self.train_policy:
-            return self._forward_policy(x, policy_output=policy_output)
-        else:
-            return self._forward_reconstruction(x)
+        return self._forward_reconstruction(x)
 
 
 

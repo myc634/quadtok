@@ -17,24 +17,25 @@ limitations under the License.
 """
 import json
 import os
+import shutil
 import time
 from pathlib import Path
 import pprint
 import glob
 from collections import defaultdict
-
+import pickle
 from data import SimpleImageDataset, PretokenizedDataset
 import torch
 import torch.nn.functional as F
 from omegaconf import OmegaConf
 from torch.optim import AdamW
 from utils.lr_schedulers import get_scheduler
-from modeling.modules import EMAModel, ReconstructionLoss_Stage1, ReconstructionLoss_Stage2, MLMLoss, ReconstructionLoss_Single_Stage, ReconstructionLoss_Reward, DiffLoss
+from modeling.modules import EMAModel, ReconstructionLoss_Stage1, ReconstructionLoss_Single_Stage_Repa, MLMLoss, ReconstructionLoss_Single_Stage, ReconstructionLoss_Reward, DiffLoss
 from modeling.titok import TiTok, PretrainedTokenizer as TiTokPretrainedTokenizer
 from modeling.one_d_piece import OneDPiece, PretrainedTokenizer as OneDPiecePretrainedTokenizer
 from modeling.quadtok import QuadTok, PolicyQuadTok
 from modeling.maskgit import ImageBert, UViTBert
-from modeling.mar import MAR, CausalMAR, QuadtreeMAR, QuadtreeGPT
+from modeling.mar import MAR, CausalMAR, QuadtreeMAR, QuadtreeGPT, QuadtreeMARBox
 from modeling.dit import DiT
 from eval.utils.evaluator import VQGANEvaluator
 from demo_util import sample_fn
@@ -44,7 +45,7 @@ from torch.nn.utils.rnn import pad_sequence
 from utils.viz_utils import make_viz_from_samples, make_viz_from_samples_generation
 from torchinfo import summary
 import copy
-from modeling.utils import build_quadtree, get_ordered_nodes, build_tree_from_decision_nodes
+from modeling.utils import build_quadtree, get_ordered_nodes, build_tree_from_decision_nodes, build_probabilistic_quadtree, QuadTreeNode
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 LOD_PROB_MAPPING = {2: 0.7, 3: 0.6, 4: 0.5}
@@ -136,7 +137,7 @@ def create_model(config, logger, accelerator,
         if config.model.generator.model_type == "ViT":
             model_cls = ImageBert
         elif config.model.generator.model_type == "UViT":
-            model_cls == UViTBert
+            model_cls = UViTBert
         else:
             raise ValueError(f"Unsupported generator model_type {config.model.generator.model_type}")
     elif model_type == "mar":
@@ -144,7 +145,7 @@ def create_model(config, logger, accelerator,
     elif model_type == "mar-causal":
         model_cls = CausalMAR
     elif model_type == "mar-quadtree":
-        model_cls = QuadtreeMAR
+        model_cls = QuadtreeMAR #QuadtreeMARBox
     elif model_type == "gpt-quadtree":
         model_cls = QuadtreeGPT
     else:
@@ -165,11 +166,6 @@ def create_model(config, logger, accelerator,
             # Only keep the quantize and decoder part
             pretrained_tokenizer_weight = {"pixel_" + k:v for k,v in pretrained_tokenizer_weight.items() if not "encoder." in k}
             model_weight.update(pretrained_tokenizer_weight)
-        
-        init_from_vae = config.experiment.get("init_from_vae", False)
-        if init_from_vae:
-            model_weight.pop('selector.out_proj.weight')
-            model_weight.pop('selector.out_proj.bias')
 
         msg = model.load_state_dict(model_weight, strict=False)
         logger.info(f"loading weight from {config.experiment.init_weight}, msg: {msg}")
@@ -203,15 +199,16 @@ def create_model(config, logger, accelerator,
                 col_names=("input_size", "output_size", "num_params", "params_percent", "kernel_size", "mult_adds"))
                 logger.info(model_summary_str)
         elif model_type in ["maskgit"]:
-            input_size = (1, config.model.vq_model.num_latent_tokens)
-            input_data = [
-                torch.randint(0, config.model.vq_model.codebook_size, input_size),
-                torch.ones(1, dtype=int)
-            ]
-            model_summary_str = summary(
-                model, input_data=input_data, depth=7,
-                col_names=("input_size", "output_size", "num_params", "params_percent", "kernel_size", "mult_adds"))
-            logger.info(model_summary_str)
+            pass
+            # input_size = (1, config.model.vq_model.num_latent_tokens)
+            # input_data = [
+            #     torch.randint(0, config.model.vq_model.codebook_size, input_size),
+            #     torch.ones(1, dtype=int)
+            # ]
+            # model_summary_str = summary(
+            #     model, input_data=input_data, depth=7,
+            #     col_names=("input_size", "output_size", "num_params", "params_percent", "kernel_size", "mult_adds"))
+            # logger.info(model_summary_str)
         elif model_type in ["mar", "mar-causal", "mar-quadtree", "gpt-quadtree"]:
             pass
         else:
@@ -258,7 +255,10 @@ def create_model_and_loss_module(config, logger, accelerator,
     model, ema_model = create_model(config, logger, accelerator, model_type=model_type)
 
     if model_type in ["titok", "one_d_piece", "quadtok"] and model.train_policy == False:
-        loss_cls = ReconstructionLoss_Single_Stage
+        if config.losses.get("repa_param", None) is not None:
+            loss_cls = ReconstructionLoss_Single_Stage_Repa
+        else:
+            loss_cls = ReconstructionLoss_Single_Stage
     elif model_type == "maskgit":
         loss_cls = MLMLoss
     elif model_type in ["titok", "one_d_piece", "quadtok"] and model.train_policy:
@@ -619,6 +619,7 @@ def train_one_epoch(config, logger, accelerator,
                             f"Step: {global_step + 1} "
                             f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
                             f"KL Loss: {autoencoder_logs['train/kl_loss']:0.4f} "
+                            # f"Repa Loss: {autoencoder_logs['train/repa_loss']:0.4f} "
                             f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
                             + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
                             + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
@@ -753,784 +754,6 @@ def train_one_epoch(config, logger, accelerator,
 
     return global_step
 
-def train_one_epoch_stage2(config, logger, accelerator,
-                    model, policy_model, ema_model, loss_module,
-                    optimizer, discriminator_optimizer,
-                    lr_scheduler, discriminator_lr_scheduler,
-                    train_dataloader, eval_dataloader,
-                    evaluator,
-                    global_step,
-                    pretrained_tokenizer=None):
-    """One epoch training."""
-    batch_time_meter = AverageMeter()
-    data_time_meter = AverageMeter()
-    end = time.time()
-
-    model.train()
-
-    autoencoder_logs = defaultdict(float)
-    discriminator_logs = defaultdict(float)
-    for i, batch in enumerate(train_dataloader):
-        model.train()
-        additional_args = {}
-        if config.model.type in ["titok", "one_d_piece", "quadtok"]:
-            if "image" in batch:
-                images = batch["image"].to(
-                    accelerator.device, memory_format=torch.contiguous_format, non_blocking=True
-                )
-                # Reconstruction
-                expected_output_images = images
-            else:
-                raise ValueError(f"Not found valid keys: {batch.keys()}")
-        else:
-            raise ValueError(f"Unsupported model type {config.model.type}")
-
-        fnames = batch["__key__"]
-        data_time_meter.update(time.time() - end)
-
-        with accelerator.accumulate([policy_model, loss_module]):
-
-            with torch.no_grad():
-                image_latent = model.encode(images)
-            predicted_actions, predicted_probs = policy_model(image_latent)
-            breakpoint()
-            z = model.selector._forward_policy(image_latent, predicted_actions)
-            z_quantized = model.quantize(z).sample()
-            reconstruction = model.decoder._forward_policy(z_quantized, predicted_actions, predicted_probs)
-
-            breakpoint()
-            reconstructed_images, extra_results_dict = model(images, **additional_args)
-            autoencoder_loss, loss_dict = loss_module(
-                expected_output_images,
-                reconstructed_images,
-                extra_results_dict,
-                global_step,
-                mode="generator",
-            )
-
-
-            # Gather the losses across all processes for logging.
-            autoencoder_logs = {}
-            for k, v in loss_dict.items():
-                if k in ["discriminator_factor", "d_weight", "num_tokens"]:
-                    if type(v) == torch.Tensor:
-                        autoencoder_logs["train/" + k] = v.cpu().item()
-                    else:
-                        autoencoder_logs["train/" + k] = v
-                else:
-                    autoencoder_logs["train/" + k] = accelerator.gather(v).mean().item()
-
-            accelerator.backward(autoencoder_loss)
-
-            if config.training.max_grad_norm is not None and accelerator.sync_gradients:
-                accelerator.clip_grad_norm_(model.parameters(), config.training.max_grad_norm)
-
-            optimizer.step()
-            lr_scheduler.step()
-
-            # Log gradient norm before zeroing it.
-            if (
-                accelerator.sync_gradients
-                and (global_step + 1) % config.experiment.log_grad_norm_every == 0
-                and accelerator.is_main_process
-            ):
-                log_grad_norm(model, accelerator, global_step + 1)
-
-            optimizer.zero_grad(set_to_none=True)
-
-            # Train discriminator.
-            discriminator_logs = defaultdict(float)
-            if (config.model.type in ["titok", "one_d_piece", "quadtok"]) and accelerator.unwrap_model(loss_module).should_discriminator_be_trained(global_step):
-                discriminator_logs = defaultdict(float)
-                discriminator_loss, loss_dict_discriminator = loss_module(
-                    images,
-                    reconstructed_images,
-                    extra_results_dict,
-                    global_step=global_step,
-                    mode="discriminator",
-                )
-
-                # Gather the losses across all processes for logging.
-                for k, v in loss_dict_discriminator.items():
-                    if k in ["logits_real", "logits_fake"]:
-                        if type(v) == torch.Tensor:
-                            discriminator_logs["train/" + k] = v.cpu().item()
-                        else:
-                            discriminator_logs["train/" + k] = v
-                    else:
-                        discriminator_logs["train/" + k] = accelerator.gather(v).mean().item()
-
-                accelerator.backward(discriminator_loss)
-
-                if config.training.max_grad_norm is not None and accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(loss_module.parameters(), config.training.max_grad_norm)
-
-                discriminator_optimizer.step()
-                discriminator_lr_scheduler.step()
-        
-                # Log gradient norm before zeroing it.
-                if (
-                    accelerator.sync_gradients
-                    and (global_step + 1) % config.experiment.log_grad_norm_every == 0
-                    and accelerator.is_main_process
-                ):
-                    log_grad_norm(loss_module, accelerator, global_step + 1)
-                
-                discriminator_optimizer.zero_grad(set_to_none=True)
-
-        if accelerator.sync_gradients:
-            if config.training.use_ema:
-                ema_model.step(policy_model.parameters())
-            batch_time_meter.update(time.time() - end)
-            end = time.time()
-
-            if (global_step + 1) % config.experiment.log_every == 0:
-                samples_per_second_per_gpu = (
-                    config.training.gradient_accumulation_steps * config.training.per_gpu_batch_size / batch_time_meter.val
-                )
-
-                lr = lr_scheduler.get_last_lr()[0]
-                if not config.model.train_policy:
-                    if config.model.vq_model.quantize_mode == "vq":
-                        logger.info(
-                            f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
-                            f"Batch (t): {batch_time_meter.val:0.4f} "
-                            f"LR: {lr:0.6f} "
-                            f"Step: {global_step + 1} "
-                            f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
-                            f"Quantizer Loss: {autoencoder_logs['train/quantizer_loss']:0.4f} "
-                            f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
-                            + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
-                            + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
-                        )
-                    elif config.model.vq_model.quantize_mode == "vae":
-                        logger.info(
-                            f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
-                            f"Batch (t): {batch_time_meter.val:0.4f} "
-                            f"LR: {lr:0.6f} "
-                            f"Step: {global_step + 1} "
-                            f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
-                            f"KL Loss: {autoencoder_logs['train/kl_loss']:0.4f} "
-                            f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
-                            + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
-                            + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
-                        )
-                else:
-                    if config.model.vq_model.quantize_mode == "vae":
-                        logger.info(
-                            f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
-                            f"Batch (t): {batch_time_meter.val:0.4f} "
-                            f"LR: {lr:0.6f} "
-                            f"Step: {global_step + 1} "
-                            f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
-                            f"Policy Loss: {autoencoder_logs['train/policy_loss']:0.4f} "
-                            f"Prob Number: {autoencoder_logs['train/prob_mean']:0.4f} "
-                            f"Reward: {autoencoder_logs['train/reward']:0.4f} "
-                            f"KL Loss: {autoencoder_logs['train/kl_loss']:0.4f} "
-                            f"Token Number: {autoencoder_logs['train/num_tokens']:0.2f} "
-                            f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
-                            + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
-                            + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
-                        )
-                    else:
-                        NotImplementedError
-                logs = {
-                    "lr": lr,
-                    "lr/generator": lr,
-                    "samples/sec/gpu": samples_per_second_per_gpu,
-                    "time/data_time": data_time_meter.val,
-                    "time/batch_time": batch_time_meter.val,
-                }
-                logs.update(autoencoder_logs)
-                logs.update(discriminator_logs)
-                accelerator.log(logs, step=global_step + 1)
-
-                # Reset batch / data time meters per log window.
-                batch_time_meter.reset()
-                data_time_meter.reset()
-
-            # Save model checkpoint.
-            if (global_step + 1) % config.experiment.save_every == 0:
-                save_path = save_checkpoint(
-                    model, config.experiment.output_dir, accelerator, global_step + 1, logger=logger)
-                # Wait for everyone to save their checkpoint.
-                accelerator.wait_for_everyone()
-
-            # Generate images.
-            if (global_step + 1) % config.experiment.generate_every == 0 and accelerator.is_main_process:
-                # Store the model parameters temporarily and load the EMA parameters to perform inference.
-                if config.training.get("use_ema", False):
-                    ema_model.store(policy_model.parameters())
-                    ema_model.copy_to(policy_model.parameters())
-                if config.model.type in ["titok", "one_d_piece", "quadtok"]:
-                    reconstruct_method = reconstruct_images
-                    additional_args = {}
-
-                reconstruct_method(
-                    model,
-                    images[:config.training.num_generated_images],
-                    fnames[:config.training.num_generated_images],
-                    accelerator,
-                    global_step + 1,
-                    config.experiment.output_dir,
-                    logger=logger,
-                    config=config,
-                    pretrained_tokenizer=pretrained_tokenizer,
-                    **additional_args
-                )
-
-                if config.training.get("use_ema", False):
-                    # Switch back to the original model parameters for training.
-                    ema_model.restore(policy_model.parameters())
-
-
-            # Evaluate reconstruction.
-            if config.model.type in ["titok", "one_d_piece", "quadtok"]:
-                eval_metrics = eval_reconstruction
-            else:
-                raise ValueError(f"Unsupported model type {config.model.type}")
-            if eval_dataloader is not None and (global_step + 1) % config.experiment.eval_every == 0:
-                logger.info(f"Computing metrics on the validation set.")
-                if config.training.get("use_ema", False):
-                    ema_model.store(policy_model.parameters())
-                    ema_model.copy_to(policy_model.parameters())
-                    # Eval for EMA.
-                    eval_scores = eval_metrics(
-                        model,
-                        eval_dataloader,
-                        accelerator,
-                        evaluator,
-                        pretrained_tokenizer=pretrained_tokenizer
-                    )
-                    logger.info(
-                        f"EMA EVALUATION "
-                        f"Step: {global_step + 1} "
-                    )
-                    logger.info(pprint.pformat(eval_scores))
-                    if accelerator.is_main_process:
-                        eval_log = {f'ema_eval/'+k: v for k, v in eval_scores.items()}
-                        accelerator.log(eval_log, step=global_step + 1)
-                    if config.training.get("use_ema", False):
-                        # Switch back to the original model parameters for training.
-                        ema_model.restore(policy_model.parameters())
-                else:
-                    # Eval for non-EMA.
-                    eval_scores = eval_metrics(
-                        model,
-                        eval_dataloader,
-                        accelerator,
-                        evaluator,
-                        pretrained_tokenizer=pretrained_tokenizer
-                    )
-
-                    logger.info(
-                        f"Non-EMA EVALUATION "
-                        f"Step: {global_step + 1} "
-                    )
-                    logger.info(pprint.pformat(eval_scores))
-                    if accelerator.is_main_process:
-                        eval_log = {f'eval/'+k: v for k, v in eval_scores.items()}
-                        accelerator.log(eval_log, step=global_step + 1)
-
-                accelerator.wait_for_everyone()
-
-            global_step += 1
-
-            if global_step >= config.training.max_train_steps:
-                accelerator.print(
-                    f"Finishing training: Global step is >= Max train steps: {global_step} >= {config.training.max_train_steps}"
-                )
-                break
-
-
-    return global_step
-
-def optimize_tree_rule_based_simple(
-    image, model, policy_model, config, device, guaranteed_depth=None
-):
-    """
-    Simplified rule-based search for training (no visualization, optimized for speed).
-    Optimizes quadtree structure for a single image using rule-based greedy search.
-    
-    Args:
-        image: Image tensor (1, 3, H, W)
-        model: QuadTok model (unwrapped)
-        policy_model: PolicyQuadTok model (unwrapped, to get action_dict format)
-        config: Config object
-        device: Device to use
-        guaranteed_depth: Override guaranteed_depth if provided
-    
-    Returns:
-        action_dict: Dictionary in the same format as PolicyQuadTok.forward() output
-            {
-                lod_idx: {
-                    "actions": tensor,  # (1, num_nodes_at_lod) - binary 0 or 1
-                    "log_probs": tensor  # (1, num_nodes_at_lod) - log probabilities
-                }
-            }
-    """
-    if guaranteed_depth is None:
-        guaranteed_depth = config.model.guaranteed_depth
-    
-    # 1. Build tree structure and mappings
-    full_tree_root = build_quadtree(model.num_patch_side_list)
-    ordered_full_nodes = get_ordered_nodes(full_tree_root, model.num_lod)
-    
-    lod_len_mapping, lod_node_mapping = defaultdict(int), defaultdict(list)
-    for node in ordered_full_nodes:
-        lod_len_mapping[node.lod_level] += 1
-        lod_node_mapping[node.lod_level].append(node)
-
-    node_to_idx_map = {
-        (node.lod_level, node.patch_index): i 
-        for i, node in enumerate(ordered_full_nodes)
-    }
-    
-    lod_start_indices = {}
-    total_nodes_count = 0
-    for lod_idx in range(model.num_lod):
-        lod_start_indices[lod_idx] = total_nodes_count
-        total_nodes_count += lod_len_mapping[lod_idx] 
-
-    parent_bfs_to_child_patch_map = defaultdict(list)
-    for parent_idx, parent_node in enumerate(ordered_full_nodes):
-        for child_node in parent_node.children:
-            if (child_node.lod_level, child_node.patch_index) in node_to_idx_map:
-                parent_bfs_to_child_patch_map[parent_idx].append(child_node.patch_index)
-
-    # 2. Get image latent (once)
-    with torch.no_grad():
-        image_latent = model.encode(image)
-
-    # 3. Initialize the tree with guaranteed nodes
-    current_decision_nodes = defaultdict(list)
-    for node in ordered_full_nodes:
-        if node.lod_level <= guaranteed_depth:
-            current_decision_nodes[node.lod_level].append(node.patch_index)
-
-    # Helper function to calculate PSNR for a tree
-    def get_psnr_for_tree(decision_nodes):
-        with torch.no_grad():
-            tree_root = build_tree_from_decision_nodes(decision_nodes, model.num_patch_side_list)
-            # Use non-blocking operations and enable CUDA benchmarking for better GPU utilization
-            z = model.selector._forward_reconstruction(image_latent, tree_root)
-            z_quantized = model.quantize(z).sample()
-            recon = model.decoder._forward_reconstruction(
-                z_quantized.permute(0, 3, 2, 1).squeeze(2).contiguous(), 
-                tree_root
-            )
-            recon = torch.clamp(recon, 0.0, 1.0)
-            
-            mse = F.mse_loss(image, recon)
-            psnr = 10 * torch.log10(1.0 / (mse + 1e-10))
-            
-            return psnr.item()
-    base_psnr = get_psnr_for_tree(current_decision_nodes)
-
-    # 5. Initialize action_dict
-    action_dict = {}
-    max_depth = policy_model.num_lod
-
-    # 6. Sequential rule-based search loop
-    for lod_idx in range(guaranteed_depth, model.num_lod - 1):
-        decision_candidates_at_lod = current_decision_nodes.get(lod_idx, [])
-        
-        # Get nodes at this LOD for building action_dict
-        lod_start_idx = policy_model.lod_start_indices[lod_idx]
-        num_nodes_at_lod = policy_model.lod_node_counts[lod_idx]
-        
-        if num_nodes_at_lod == 0:
-            continue
-        
-        if not decision_candidates_at_lod:
-            # No candidates, create all-zero actions for this LOD
-            actions_tensor = torch.zeros((1, num_nodes_at_lod), dtype=torch.float32, device=device)
-            action_dict[lod_idx] = {"actions": actions_tensor}
-            continue
-
-        psnr_gain_scores_for_lod = []
-        base_tree_nodes = copy.deepcopy(current_decision_nodes)
-
-        # Test each potential split
-        for parent_patch_idx in decision_candidates_at_lod:
-            test_tree_nodes = copy.deepcopy(base_tree_nodes)
-            
-            parent_global_idx = node_to_idx_map[(lod_idx, parent_patch_idx)]
-            child_patches = parent_bfs_to_child_patch_map.get(parent_global_idx, [])
-            
-            if not child_patches:
-                continue
-
-            test_tree_nodes[lod_idx + 1].extend(child_patches)
-            test_psnr = get_psnr_for_tree(test_tree_nodes)
-            psnr_gain = test_psnr - base_psnr
-            
-            psnr_gain_scores_for_lod.append((psnr_gain, parent_patch_idx))
-            
-            # Don't clear cache after each split - only at the end of all splits
-            # del test_tree_nodes
-            # torch.cuda.empty_cache()
-        
-        # Clear cache once after testing all splits for this LOD
-        torch.cuda.empty_cache()
-
-        if not psnr_gain_scores_for_lod:
-            # No valid splits, create all-zero actions for this LOD
-            actions_tensor = torch.zeros((1, num_nodes_at_lod), dtype=torch.float32, device=device)
-            action_dict[lod_idx] = {"actions": actions_tensor}
-            continue
-
-        # Rank by gain and keep top 50% with positive gain
-        psnr_gain_scores_for_lod.sort(key=lambda x: x[0], reverse=True)
-        num_to_keep = max(1, int(len(psnr_gain_scores_for_lod) * 0.5))
-        top_splits = psnr_gain_scores_for_lod[:num_to_keep]
-        
-        top_positive_gain_splits = [s for s in top_splits if s[0] > 0]
-        top_parents = {p_idx for psnr_gain, p_idx in top_positive_gain_splits}
-        
-        # Build actions tensor for this LOD right here
-        nodes_at_lod = ordered_full_nodes[lod_start_idx:lod_start_idx + num_nodes_at_lod]
-        actions_list = []
-        
-        for node in nodes_at_lod:
-            if node.patch_index in top_parents:
-                actions_list.append(1.0)
-            else:
-                actions_list.append(0.0)
-        
-        actions_tensor = torch.tensor(actions_list, dtype=torch.float32, device=device).unsqueeze(0)
-        action_dict[lod_idx] = {"actions": actions_tensor}
-        
-        # Update tree
-        if top_parents:
-            new_children_for_next_lod = []
-            for parent_patch_idx in top_parents:
-                parent_global_idx = node_to_idx_map[(lod_idx, parent_patch_idx)]
-                child_patches = parent_bfs_to_child_patch_map.get(parent_global_idx, [])
-                new_children_for_next_lod.extend(child_patches)
-                
-            current_decision_nodes[lod_idx + 1] = new_children_for_next_lod
-            base_psnr = get_psnr_for_tree(current_decision_nodes)
-
-    torch.cuda.empty_cache()
-    return action_dict
-
-def train_one_epoch_policy(config, logger, accelerator,
-                    model, policy_model, ema_model, loss_module,
-                    optimizer, discriminator_optimizer,
-                    lr_scheduler, discriminator_lr_scheduler,
-                    train_dataloader, eval_dataloader,
-                    evaluator,
-                    global_step,
-                    pretrained_tokenizer=None):
-    """One epoch training."""
-    batch_time_meter = AverageMeter()
-    data_time_meter = AverageMeter()
-    end = time.time()
-
-    policy_model.train()
-    model.eval()
-
-    def get_logprobs(action_dict):
-        log_probs = []
-        for key, value in action_dict.items():
-            log_probs.append(value["log_probs"])
-        return torch.cat(log_probs, dim=1)
-
-    autoencoder_logs = defaultdict(float)
-    discriminator_logs = defaultdict(float)
-    for i, batch in enumerate(train_dataloader):
-        additional_args = {}
-        if config.model.type in ["titok", "one_d_piece", "quadtok"]:
-            if "image" in batch:
-                images = batch["image"].to(
-                    accelerator.device, memory_format=torch.contiguous_format, non_blocking=True
-                )
-                # Reconstruction
-                bs = images.shape[0]
-                expected_output_images = images
-            else:
-                raise ValueError(f"Not found valid keys: {batch.keys()}")
-        else:
-            raise ValueError(f"Unsupported model type {config.model.type}")
-
-        fnames = batch["__key__"]
-        data_time_meter.update(time.time() - end)
-
-        policy_params = config.policy
-
-        with accelerator.accumulate([policy_model]):
-            with torch.no_grad():
-                image_latents = model.encode(images)
-
-                image_latents_grouped = image_latents.unsqueeze(0).repeat(policy_params.group_size, 1, 1, 1).flatten(0, 1).contiguous()
-                images_grouped = images.unsqueeze(0).repeat(policy_params.group_size, 1, 1, 1, 1).flatten(0, 1).contiguous() # gs bs 3 h w # gs bs 1
-                b_g = images_grouped.shape[0]
-
-
-                policy_model.eval()
-                sampled_action_dict, padding_mask = accelerator.unwrap_model(policy_model).rollout_trajs(image_latents_grouped)
-                policy_model.train()
-            
-                # Rule-based search: get sub-optimal quadtree for each image, returns action_dict
-            #     rule_search_action_dicts = None
-            #     unwrapped_model = accelerator.unwrap_model(model)
-            #     unwrapped_policy_model = accelerator.unwrap_model(policy_model)
-            #     rule_search_action_dicts = []
-                
-
-            #     for img_idx, single_image in enumerate(images.unsqueeze(1)):
-            #         action_dict = optimize_tree_rule_based_simple(
-            #             single_image, unwrapped_model, unwrapped_policy_model, config, accelerator.device
-            #         )
-            #         rule_search_action_dicts.append(action_dict)
-
-            # rule_search_action_list = []
-            # for batch_action in rule_search_action_dicts:
-            #     batch_action_list = []
-            #     for lod_idx, action_dict in batch_action.items():
-            #         if lod_idx in sampled_action_dict.keys():
-            #             batch_action_list.append(action_dict["actions"])
-
-            #     batch_action_list = torch.cat(batch_action_list, dim=1)
-            #     rule_search_action_list.append(batch_action_list)
-            # rule_search_action = torch.cat(rule_search_action_list, dim=0).unsqueeze(0).repeat(policy_params.group_size, 1, 1).flatten(0, 1).contiguous()
-
-            total_returns = torch.zeros(b_g, device=accelerator.device)
-            total_quality_improvement = torch.zeros(b_g, device=accelerator.device)
-
-            with torch.no_grad():
-                
-                model.train_policy = True
-                reconstructions = model.decoding_pre_selector(
-                    image_latents_grouped, sampled_action_dict, padding_mask
-                )
-                # construct reference probs same as train
-                ref_action_dict = dict()
-
-                for key, value in sampled_action_dict.items():
-                    ref_action_dict[key] = dict(log_probs=torch.log(torch.ones_like(value['log_probs']) * (LOD_PROB_MAPPING[key])))
-
-                sampled_logprobs = get_logprobs(sampled_action_dict)
-                ref_logprobs = get_logprobs(ref_action_dict)
-                
-                total_losses_per_item, loss_dict = loss_module(
-                    images_grouped,
-                    reconstructions,
-                )
-            images_grouped = images_grouped.view(-1, bs, 3, 256, 256)
-            reward_grouped = torch.exp(-total_losses_per_item.view(-1, bs)) # gs bs
-            
-            # rule_search_action_dicts contains the action_dict for each image from rule-based search
-            # These can be used later if needed (e.g., for comparison, logging, or alternative training strategies)
-            
-
-            group_mean = reward_grouped.mean(dim=0, keepdim=True)
-            group_std = reward_grouped.std(dim=0, keepdim=True)
-            advantages_normalized = ((reward_grouped - group_mean) / (group_std + 1e-8)).flatten(0, 1)
-            
-            all_policy_losses, all_reference_losses, all_probs = [], [], []
-            for ppo_epoch in range(policy_params.ppo_epochs):
-
-                current_logprobs, padding_mask = policy_model(image_latents_grouped, sampled_action_dict)  #accelerator.unwrap_model
-
-                advantages_expanded = advantages_normalized.unsqueeze(-1) # (B_valid, 1)
-                
-                # (B_valid, T)
-                ratios = torch.exp(current_logprobs - sampled_logprobs)
-                surr1 = ratios * -advantages_expanded
-                surr2 = torch.clamp(
-                    ratios, 
-                    1.0 - policy_params.clip_epsilon, 
-                    1.0 + policy_params.clip_epsilon
-                ) * -advantages_expanded
-
-                policy_loss_valid = torch.maximum(surr1, surr2)[~padding_mask]
-                # mean_policy_loss = torch.mean(policy_loss_valid)
-                all_policy_losses.append(policy_loss_valid.detach().mean())
-
-                reference_loss = (current_logprobs - ref_logprobs)[~padding_mask]
-                # reference_loss = F.binary_cross_entropy_with_logits(current_logprobs, rule_search_action, reduction="none").mean(dim=1)
-                all_reference_losses.append(reference_loss.detach().mean())
-
-                all_probs.append(current_logprobs.sigmoid().mean())
-
-                total_loss = (policy_loss_valid - policy_params.reference_loss_weight * reference_loss).mean()#+ (1 - current_logprobs.sigmoid()).mean() #+ reference_loss.mean() * policy_params.reference_loss_weight
-                # total_loss = reference_loss.mean()
-                optimizer.zero_grad()
-                accelerator.backward(total_loss)
-                
-                if accelerator.sync_gradients and config.get("clip_grad_norm", None):
-                   accelerator.clip_grad_norm_(policy_model.parameters(), config.clip_grad_norm)
-
-                optimizer.step()
-
-            lr_scheduler.step()
-            policy_logs = {}
-            all_policy_losses = torch.stack(all_policy_losses).mean()
-            all_reference_losses = torch.stack(all_reference_losses).mean()
-            all_probs = torch.stack(all_probs).mean()
-            # if accelerator.is_main_process:
-            policy_logs["train/lr"] = lr_scheduler.get_last_lr()[0]
-            policy_logs["train/ppo_loss"] = accelerator.gather(all_policy_losses).mean().item()
-            policy_logs["train/reward_mean"] = accelerator.gather(reward_grouped).mean().item() 
-            policy_logs["train/reference_loss"] = accelerator.gather(all_reference_losses).mean().item()
-            policy_logs["train/probs"] = accelerator.gather(all_probs).mean().item()
-            for k, v in loss_dict.items():
-                policy_logs["train/" + k] = accelerator.gather(v).mean().item()
-
-
-            # Log gradient norm before zeroing it.
-            if (
-                accelerator.sync_gradients
-                and (global_step + 1) % config.experiment.log_grad_norm_every == 0
-                and accelerator.is_main_process
-            ):
-                log_grad_norm(policy_model, accelerator, global_step + 1)
-
-            optimizer.zero_grad(set_to_none=True)
-
-
-        if accelerator.sync_gradients:
-            if config.training.use_ema:
-                ema_model.step(policy_model.parameters())
-            batch_time_meter.update(time.time() - end)
-            end = time.time()
-            if accelerator.is_main_process:
-                if (global_step + 1) % config.experiment.log_every == 0:
-                    samples_per_second_per_gpu = (
-                        config.training.gradient_accumulation_steps * config.training.per_gpu_batch_size / batch_time_meter.val
-                    )
-
-                    lr = lr_scheduler.get_last_lr()[0]
-
-                    logger.info(
-                        f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
-                        f"Batch (t): {batch_time_meter.val:0.4f} "
-                        f"LR: {lr:0.6f} "
-                        f"Step: {global_step + 1} "
-                        f"PPO Loss: {policy_logs['train/ppo_loss']:.4f}, "
-                        f"Pred Probs: {policy_logs['train/probs']:.4f}, "
-                        f"Reward Mean: {policy_logs['train/reward_mean']:.4f}, "
-                        f"Reference Loss: {policy_logs['train/reference_loss']:.4f}, "
-                        f"Recon Loss: {policy_logs['train/reconstruction_loss']:.4f}, "
-                        f"Perceptual Loss: {policy_logs['train/perceptual_loss']:.4f}, "
-                        f"LR: {lr:.2e}"
-                    )
-
-                    logs = {
-                        "lr": lr,
-                        "lr/generator": lr,
-                        "samples/sec/gpu": samples_per_second_per_gpu,
-                        "time/data_time": data_time_meter.val,
-                        "time/batch_time": batch_time_meter.val,
-                    }
-                    logs.update(policy_logs)
-
-                    accelerator.log(logs, step=global_step + 1)
-
-                    # Reset batch / data time meters per log window.
-                    batch_time_meter.reset()
-                    data_time_meter.reset()
-
-            # Save model checkpoint.
-            if (global_step + 1) % config.experiment.save_every == 0:
-                save_path = save_checkpoint(
-                    policy_model, config.experiment.output_dir, accelerator, global_step + 1, logger=logger)
-                # Wait for everyone to save their checkpoint.
-                accelerator.wait_for_everyone()
-
-            # Generate images.
-
-            ####### NOT DONE YET!!
-            # if (global_step + 1) % config.experiment.generate_every == 0 and accelerator.is_main_process:
-            #     # Store the model parameters temporarily and load the EMA parameters to perform inference.
-            #     if config.training.get("use_ema", False):
-            #         ema_model.store(model.parameters())
-            #         ema_model.copy_to(model.parameters())
-            #     if config.model.type in ["titok", "one_d_piece", "quadtok"]:
-            #         reconstruct_method = reconstruct_images
-            #         additional_args = {}
-
-            #     reconstruct_method(
-            #         model,
-            #         images[:config.training.num_generated_images],
-            #         fnames[:config.training.num_generated_images],
-            #         accelerator,
-            #         global_step + 1,
-            #         config.experiment.output_dir,
-            #         logger=logger,
-            #         config=config,
-            #         pretrained_tokenizer=pretrained_tokenizer,
-            #         **additional_args
-            #     )
-
-            #     if config.training.get("use_ema", False):
-            #         # Switch back to the original model parameters for training.
-            #         ema_model.restore(model.parameters())
-
-
-            # # Evaluate reconstruction.
-            # if config.model.type in ["titok", "one_d_piece", "quadtok"]:
-            #     eval_metrics = eval_reconstruction
-            # else:
-            #     raise ValueError(f"Unsupported model type {config.model.type}")
-            # if eval_dataloader is not None and (global_step + 1) % config.experiment.eval_every == 0:
-            #     logger.info(f"Computing metrics on the validation set.")
-            #     if config.training.get("use_ema", False):
-            #         ema_model.store(model.parameters())
-            #         ema_model.copy_to(model.parameters())
-            #         # Eval for EMA.
-            #         eval_scores = eval_metrics(
-            #             model,
-            #             eval_dataloader,
-            #             accelerator,
-            #             evaluator,
-            #             pretrained_tokenizer=pretrained_tokenizer
-            #         )
-            #         logger.info(
-            #             f"EMA EVALUATION "
-            #             f"Step: {global_step + 1} "
-            #         )
-            #         logger.info(pprint.pformat(eval_scores))
-            #         if accelerator.is_main_process:
-            #             eval_log = {f'ema_eval/'+k: v for k, v in eval_scores.items()}
-            #             accelerator.log(eval_log, step=global_step + 1)
-            #         if config.training.get("use_ema", False):
-            #             # Switch back to the original model parameters for training.
-            #             ema_model.restore(model.parameters())
-            #     else:
-            #         # Eval for non-EMA.
-            #         eval_scores = eval_metrics(
-            #             model,
-            #             eval_dataloader,
-            #             accelerator,
-            #             evaluator,
-            #             pretrained_tokenizer=pretrained_tokenizer
-            #         )
-
-            #         logger.info(
-            #             f"Non-EMA EVALUATION "
-            #             f"Step: {global_step + 1} "
-            #         )
-            #         logger.info(pprint.pformat(eval_scores))
-            #         if accelerator.is_main_process:
-            #             eval_log = {f'eval/'+k: v for k, v in eval_scores.items()}
-            #             accelerator.log(eval_log, step=global_step + 1)
-
-                accelerator.wait_for_everyone()
-
-            global_step += 1
-
-            if global_step >= config.training.max_train_steps:
-                accelerator.print(
-                    f"Finishing training: Global step is >= Max train steps: {global_step} >= {config.training.max_train_steps}"
-                )
-                break
-
-
-    return global_step
-
 
 def train_one_epoch_generator(
                     config, logger, accelerator,
@@ -1561,15 +784,164 @@ def train_one_epoch_generator(
             with torch.no_grad():
                 tokenizer.eval()
                 if config.model.generator_type in ["maskgit"]:
-                    length = config.model.generator.image_seq_len
-                    input_tokens = tokenizer.encode(images)[1]["min_encoding_indices"]
-                    input_tokens = input_tokens[:,:,:length]
-                    assert input_tokens.shape[2] == length, f"Expected input tokens shape {length}, got {input_tokens.shape[2]}"
-                    input_tokens = input_tokens.reshape(images.shape[0], -1)
+                    # length = config.model.generator.image_seq_len
+                    # input_tokens = tokenizer.encode(images)[1]["min_encoding_indices"]
+                    # input_tokens = input_tokens[:,:,:length]
+                    # assert input_tokens.shape[2] == length, f"Expected input tokens shape {length}, got {input_tokens.shape[2]}"
+                    # input_tokens = input_tokens.reshape(images.shape[0], -1)
+                    with open("/mnt/petrelfs/jianglihan/my_code/quadtok/fixed_quadtree_low.json", 'r') as f:
+                        tree_dict_json = json.load(f)
+                    final_tree_dict = {}
+                    num_patch_side_list = config.model.selector.num_patch_side_list
+                    patch_size_list = config.model.selector.patch_size_list
+                    resolution = 256
+                    node_positions = []
+                    node_incides = []
+                    for lod_idx, node_dict in tree_dict_json['final_tree'].items():
+                        patch_size = patch_size_list[int(lod_idx)]
+                        nodes = []
+                        for node_info in node_dict:
+                            node = QuadTreeNode(
+                                patch_index=node_info['patch_index'],
+                                lod_level=node_info['lod_level']
+                            )
+                            
+                            row, col = divmod(node.patch_index, num_patch_side_list[int(lod_idx)])
+                            y_start, x_start = row * patch_size, col * patch_size
+                            y_end, x_end = y_start + patch_size, x_start + patch_size
+                            node_position = [x_start / resolution, y_start / resolution, x_end / resolution, y_end / resolution]
+                            node_positions.append(node_position)
+                            nodes.append(node)
+                            node_incides.append(int(lod_idx))
+                        final_tree_dict[int(lod_idx)] = nodes
+                    node_positions = torch.tensor(node_positions, device=accelerator.device, dtype=images.dtype)
+                    node_incides = torch.tensor(node_incides, device=accelerator.device, dtype=torch.long)[1:]
+                    tree_list = [copy.deepcopy(final_tree_dict) for _ in range(images.shape[0])]
+                    image_latent = tokenizer.encode(images)
+                    z_batch = tokenizer.selector._forward_optimize(image_latent, tree_list)
+                    z_quantized_batch, result_dict = tokenizer.quantize(z_batch)
+                    input_tokens = result_dict['min_encoding_indices'].squeeze(1)
+
                 elif config.model.generator_type in ["mar", "mar-causal"]:
                     posterior = tokenizer.encode_generation(images)
                     breakpoint()
                     input_tokens = posterior.sample().mul_(0.2325)
+                elif config.model.generator_type in ["mar-quadtree", "gpt-quadtree"]:
+                    with open("/mnt/petrelfs/jianglihan/my_code/quadtok/fixed_quadtree_low.json", 'r') as f:
+                        tree_dict_json = json.load(f)
+                    final_tree_dict = {}
+                    num_patch_side_list = config.model.selector.num_patch_side_list
+                    patch_size_list = config.model.selector.patch_size_list
+                    resolution = 256
+                    node_positions = []
+                    node_incides = []
+                    for lod_idx, node_dict in tree_dict_json['final_tree'].items():
+                        patch_size = patch_size_list[int(lod_idx)]
+                        nodes = []
+                        for node_info in node_dict:
+                            node = QuadTreeNode(
+                                patch_index=node_info['patch_index'],
+                                lod_level=node_info['lod_level']
+                            )
+                            
+                            row, col = divmod(node.patch_index, num_patch_side_list[int(lod_idx)])
+                            y_start, x_start = row * patch_size, col * patch_size
+                            y_end, x_end = y_start + patch_size, x_start + patch_size
+                            node_position = [x_start / resolution, y_start / resolution, x_end / resolution, y_end / resolution]
+                            node_positions.append(node_position)
+                            nodes.append(node)
+                            node_incides.append(int(lod_idx))
+                        final_tree_dict[int(lod_idx)] = nodes
+                    node_positions = torch.tensor(node_positions, device=accelerator.device, dtype=images.dtype)
+                    node_incides = torch.tensor(node_incides, device=accelerator.device, dtype=torch.long)[1:]
+                    tree_list = [copy.deepcopy(final_tree_dict) for _ in range(images.shape[0])]
+                    
+                    # tree_root = build_probabilistic_quadtree(
+                    #     config.model.selector.num_patch_side_list, 
+                    #     guaranteed_depth=3, 
+                    #     expansion_probs=[0.3, 0.3]
+                    # )
+                    # final_tree = tree_to_decision_nodes_dict(tree_root, 6)
+                    # tree_list = [copy.deepcopy(final_tree) for _ in range(images.shape[0])]
+                    image_latent = tokenizer.encode(images)
+                    z_batch = tokenizer.selector._forward_optimize(image_latent, tree_list)
+
+                    if tokenizer.quantize_mode == "vae":
+                        z_quantized_batch = tokenizer.quantize(z_batch).sample()
+                        target_tokens =  z_quantized_batch.permute(0, 3, 2, 1).squeeze(2).to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True)
+                        
+                    elif tokenizer.quantize_mode == "vq":
+                        z_quantized_batch, result_dict = tokenizer.quantize(z_batch)
+                        target_tokens = result_dict['min_encoding_indices'].squeeze(1)
+                    input_tokens = target_tokens[:, :-1].clone()
+                    # Build ordered node sequence from final_tree_dict (same order as token sequence)
+                    # ordered_nodes_for_seq = []
+                    # for lod_idx in sorted(final_tree_dict.keys()):
+                    #     ordered_nodes_for_seq.extend(final_tree_dict[lod_idx])
+                    
+                    # seq_len = len(ordered_nodes_for_seq)
+                    # batch_size = target_tokens.shape[0]
+
+                    # input_tokens = target_tokens[:, :-1].clone()
+                    
+                    # # Build full quadtree to get child_to_parent_map
+                    # full_tree_root = build_quadtree(num_patch_side_list)
+                    # ordered_full_nodes = get_ordered_nodes(full_tree_root, len(num_patch_side_list))
+                    # node_to_idx_map = {
+                    #     (node.lod_level, node.patch_index): i 
+                    #     for i, node in enumerate(ordered_full_nodes)
+                    # }
+                    # child_to_parent_map = {}
+                    # for parent_node in ordered_full_nodes:
+                    #     for child_node in parent_node.children:
+                    #         child_key = (child_node.lod_level, child_node.patch_index)
+                    #         if child_key in node_to_idx_map:
+                    #             child_to_parent_map[child_key] = parent_node
+                    
+                    # # Map each node (lod_level, patch_index) -> token position in sequence
+                    # token_pos_map = {
+                    #     (node.lod_level, node.patch_index): idx
+                    #     for idx, node in enumerate(ordered_nodes_for_seq)
+                    # }
+                    
+                    # # Build parent_idx tensor: each element represents parent's token idx
+                    # parent_indices_list = []
+                    # for i, node in enumerate(ordered_nodes_for_seq):
+                    #     child_key = (node.lod_level, node.patch_index)
+                    #     parent_node = child_to_parent_map.get(child_key, None)
+                    #     if parent_node is None:
+                    #         # Root node or missing parent -> keep -1
+                    #         parent_indices_list.append(-1)
+                    #     else:
+                    #         parent_key = (parent_node.lod_level, parent_node.patch_index)
+                    #         parent_token_idx = token_pos_map.get(parent_key, -1)
+                    #         parent_indices_list.append(parent_token_idx)
+                    
+                    # parent_idx = torch.tensor(parent_indices_list, dtype=torch.long, device=accelerator.device)
+                    # parent_idx = parent_idx.unsqueeze(0).repeat(batch_size, 1)  # (batch_size, seq_len)
+                    
+                    # # Build lod_indices tensor: each element represents current node's LOD level
+                    # lod_indices_list = [node.lod_level for node in ordered_nodes_for_seq]
+                    # lod_indices = torch.tensor(lod_indices_list, dtype=torch.long, device=accelerator.device)
+                    # lod_indices = lod_indices.unsqueeze(0).repeat(batch_size, 1)  # (batch_size, seq_len)
+                    
+                    # # Modify input_tokens: replace tokens at positions with parent tokens
+                    # # input_tokens shape: (batch_size, seq_len - 1)
+                    # parent_idx_slice = parent_idx[:, 1:]  # Skip position 0, shape: (batch_size, seq_len - 1)
+                    # valid_mask = parent_idx_slice != -1  # (batch_size, seq_len - 1)
+                    
+                    # batch_indices = torch.arange(batch_size, device=target_tokens.device).unsqueeze(1).expand(-1, seq_len - 1)
+                    # pos_indices = torch.arange(seq_len - 1, device=target_tokens.device).unsqueeze(0).expand(batch_size, -1)
+                    
+                    # valid_batch = batch_indices[valid_mask]
+                    # valid_pos = pos_indices[valid_mask]
+                    # valid_parent_idx = parent_idx_slice[valid_mask]
+                    
+                    # if len(valid_batch) > 0:
+                    #     # Replace input_tokens at valid positions with parent tokens
+                    #     input_tokens[valid_batch, valid_pos] = target_tokens[valid_batch, valid_parent_idx]
+
+                    
         elif "z_quantized" in batch:
             target_tokens = batch["z_quantized"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True)
             # recentering! import for diffusion training
@@ -1580,6 +952,23 @@ def train_one_epoch_generator(
             tree_dict = dict(status=batch['status'].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True),
                              lengths=batch['lengths'].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True),
                              tree=batch['tree'])
+            parent_idx = batch["parent_idx"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True)
+            batch_size, seq_len = target_tokens.shape[:2]
+
+            parent_idx_slice = parent_idx[:, 1:]  # Skip position 0
+            valid_mask = parent_idx_slice != -1  # (batch_size, seq_len - 1)
+
+            parent_tokens = torch.zeros_like(target_tokens)[:, 1:]
+                                     
+            batch_indices = torch.arange(batch_size, device=target_tokens.device).unsqueeze(1).expand(-1, seq_len - 1)
+            pos_indices = torch.arange(seq_len - 1, device=target_tokens.device).unsqueeze(0).expand(batch_size, -1)
+            
+            valid_batch = batch_indices[valid_mask]
+            valid_pos = pos_indices[valid_mask]
+            valid_parent_idx = parent_idx_slice[valid_mask]
+            
+            if len(valid_batch) > 0:
+                parent_tokens[valid_batch, valid_pos] = target_tokens[valid_batch, valid_parent_idx]
         else:
             raise ValueError(f"Not found valid keys: {batch.keys()}")
         data_time_meter.update(time.time() - end)
@@ -1599,7 +988,8 @@ def train_one_epoch_generator(
             elif config.model.generator_type in ["mar", "mar-causal"]:
                 loss, loss_dict = model(input_tokens, conditions)
             elif config.model.generator_type in ["mar-quadtree", "gpt-quadtree"]:
-                loss, loss_dict = model(input_tokens, target_tokens, tree_dict, conditions)
+                # loss, loss_dict = model(input_tokens, target_tokens, tree_dict, conditions)
+                loss, loss_dict = model(input_tokens, target_tokens, node_incides, conditions)
             elif config.model.generator_type in ["dit"]:
                 loss, loss_dict = model(target_tokens, tree_dict, conditions)
             # Gather the losses across all processes for logging.
@@ -1636,22 +1026,24 @@ def train_one_epoch_generator(
                     config.training.gradient_accumulation_steps * config.training.per_gpu_batch_size / batch_time_meter.val
                 )
                 if "z" in loss_dict.keys() and accelerator.is_main_process:
-                    bs, seq_len, _ = loss_dict['z'].shape
-                    with torch.no_grad():
-                        sampled_token = accelerator.unwrap_model(model).diffloss.sample(loss_dict['z'].flatten(0, 1), 1, 1.0).view(bs, seq_len, -1)
-
-                    prediction_images([sampled_token[:2], batch['tree'][:2]], tokenizer, target_tokens[:2], accelerator, global_step + 1, config.experiment.output_dir, logger=logger, config=config)
+                    pass
+                    # bs, seq_len, _ = loss_dict['z'].shape
+                    # with torch.no_grad():
+                    #     sampled_token = accelerator.unwrap_model(model).diffloss.sample(loss_dict['z'].flatten(0, 1), 1, 1.0).view(bs, seq_len, -1)
+                    # breakpoint()
+                    # prediction_images([sampled_token[:4], tree_list[:4]], tokenizer, target_tokens[:4], accelerator, global_step + 1, config.experiment.output_dir, logger=logger, config=config)
                 elif "token_logits" in loss_dict.keys() and accelerator.is_main_process:
-                    token_probs = F.softmax(loss_dict['token_logits'][:2], dim=-1)
-                    token_idx = torch.multinomial(token_probs.flatten(0, 1), num_samples=1).squeeze(-1)
-                    sampled_token = tokenizer.quantize.get_codebook_entry(token_idx).view(2, -1, config.model.selector.token_size)
+                    pass
+                    # token_probs = F.softmax(loss_dict['token_logits'][:2], dim=-1)
+                    # token_idx = torch.multinomial(token_probs.flatten(0, 1), num_samples=1).squeeze(-1)
+                    # sampled_token = tokenizer.quantize.get_codebook_entry(token_idx).view(2, -1, config.model.selector.token_size)
 
-                    # get gt tokens
-                    valid_mask = target_tokens[:2] >= 0  # (B, N)
-                    safe_indices = torch.where(valid_mask, target_tokens[:2], torch.zeros_like(target_tokens[:2]))
-                    target_token = tokenizer.quantize.get_codebook_entry(safe_indices.flatten()).view(2, -1, config.model.selector.token_size)
+                    # # get gt tokens
+                    # valid_mask = target_tokens[:2] >= 0  # (B, N)
+                    # safe_indices = torch.where(valid_mask, target_tokens[:2], torch.zeros_like(target_tokens[:2]))
+                    # target_token = tokenizer.quantize.get_codebook_entry(safe_indices.flatten()).view(2, -1, config.model.selector.token_size)
 
-                    prediction_images([sampled_token, batch['tree'][:2]], tokenizer, target_token, accelerator, global_step + 1, config.experiment.output_dir, logger=logger, config=config)
+                    # prediction_images([sampled_token, batch['tree'][:2]], tokenizer, target_token, accelerator, global_step + 1, config.experiment.output_dir, logger=logger, config=config)
 
                 lr = lr_scheduler.get_last_lr()[0]
                 if config.model.generator_type in ["mar-quadtree"]:
@@ -1666,13 +1058,23 @@ def train_one_epoch_generator(
                         # f"Expand Loss: {loss_logs['train/expand_loss']:0.4f} "
                     )
                 else:
-                    logger.info(
-                        f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
-                        f"Batch (t): {batch_time_meter.val:0.4f} "
-                        f"LR: {lr:0.6f} "
-                        f"Step: {global_step + 1} "
-                        f"Loss: {loss_logs['train/total_loss']:0.4f} "
-                    )
+                    if "train/correct_tokens" in loss_logs.keys():
+                        logger.info(
+                            f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
+                            f"Batch (t): {batch_time_meter.val:0.4f} "
+                            f"LR: {lr:0.6f} "
+                            f"Step: {global_step + 1} "
+                            f"Loss: {loss_logs['train/total_loss']:0.4f} "
+                            f"Token Acc: {loss_logs['train/correct_tokens']:0.4f} "
+                        )
+                    else:
+                        logger.info(
+                            f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
+                            f"Batch (t): {batch_time_meter.val:0.4f} "
+                            f"LR: {lr:0.6f} "
+                            f"Step: {global_step + 1} "
+                            f"Loss: {loss_logs['train/total_loss']:0.4f} "
+                        )
                 logs = {
                     "lr": lr,
                     "lr/generator": lr,
@@ -1695,28 +1097,27 @@ def train_one_epoch_generator(
                 accelerator.wait_for_everyone()
 
             # Generate images.
-            # if (global_step + 1) % config.experiment.generate_every == 0 and accelerator.is_main_process:
-            #     # Store the model parameters temporarily and load the EMA parameters to perform inference.
-            #     if config.training.get("use_ema", False):
-            #         ema_model.store(model.parameters())
-            #         ema_model.copy_to(model.parameters())
-            #     try:
-            #         generate_images(
-            #             model,
-            #             tokenizer,
-            #             accelerator,
-            #             global_step + 1,
-            #             config.experiment.output_dir,
-            #             logger=logger,
-            #             config=config
-            #         )
-            #     except Exception as e:
-            #         logger.error(f"Error generating images: {e}")
-            #         continue
-            #     if config.training.get("use_ema", False):
-            #         # Switch back to the original model parameters for training.
-            #         ema_model.restore(model.parameters())
-
+            if (global_step + 1) % config.experiment.generate_every == 0 and accelerator.is_main_process:
+                # Store the model parameters temporarily and load the EMA parameters to perform inference.
+                if config.training.get("use_ema", False):
+                    ema_model.store(model.parameters())
+                    ema_model.copy_to(model.parameters())
+                # try:
+                generate_images(
+                    model,
+                    tokenizer,
+                    accelerator,
+                    global_step + 1,
+                    config.experiment.output_dir,
+                    logger=logger,
+                    config=config
+                )
+                # except Exception as e:
+                #     logger.error(f"Error generating images: {e}")
+                #     continue
+                if config.training.get("use_ema", False):
+                    # Switch back to the original model parameters for training.
+                    ema_model.restore(model.parameters())
             global_step += 1
 
             if global_step >= config.training.max_train_steps:
@@ -1889,6 +1290,45 @@ def prediction_images(model_output, tokenizer, input_tokens, accelerator,
     return
 
 
+def cleanup_old_checkpoints(output_dir, keep_num=5, logger=None):
+    """Keep only the latest N checkpoints and delete the rest.
+    
+    Args:
+        output_dir: Directory containing checkpoints
+        keep_num: Number of latest checkpoints to keep (default: 5)
+        logger: Optional logger for logging deletion info
+    """
+    output_path = Path(output_dir)
+    if not output_path.exists():
+        return
+    
+    # Find all checkpoint directories
+    checkpoint_dirs = list(output_path.glob("checkpoint-*"))
+    
+    if len(checkpoint_dirs) <= keep_num:
+        return
+    
+    # Sort checkpoints by global_step (extracted from directory name)
+    def get_step(checkpoint_dir):
+        try:
+            return int(checkpoint_dir.name.split("-")[-1])
+        except (ValueError, IndexError):
+            return -1
+    
+    checkpoint_dirs.sort(key=get_step, reverse=True)
+    
+    # Delete old checkpoints, keeping only the latest keep_num
+    checkpoints_to_delete = checkpoint_dirs[keep_num:]
+    for checkpoint_dir in checkpoints_to_delete:
+        try:
+            shutil.rmtree(checkpoint_dir)
+            if logger:
+                logger.info(f"Deleted old checkpoint: {checkpoint_dir}")
+        except Exception as e:
+            if logger:
+                logger.warning(f"Failed to delete checkpoint {checkpoint_dir}: {e}")
+
+
 def save_checkpoint(model, output_dir, accelerator, global_step, logger) -> Path:
     save_path = Path(output_dir) / f"checkpoint-{global_step}"
 
@@ -1904,6 +1344,11 @@ def save_checkpoint(model, output_dir, accelerator, global_step, logger) -> Path
         logger.info(f"Saved state to {save_path}")
 
     accelerator.save_state(save_path)
+    
+    # Cleanup old checkpoints after saving (only on main process)
+    if accelerator.is_main_process:
+        cleanup_old_checkpoints(output_dir, keep_num=2, logger=logger)
+    
     return save_path
 
 

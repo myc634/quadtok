@@ -1,0 +1,39 @@
+================================================================================
+Tree Expansion Statistics
+patches_per_side_list=[1, 2, 4, 8, 16, 32]
+guaranteed_depth=3, num_runs=2000
+================================================================================
+
+
+expansion_probs=[0.3, 0.2]
+--------------------------------------------------------------------------------
+Total nodes: min=137, max=349, mean=222.43, median=221
+Nodes by LOD:
+  LOD 0: min=1, max=1, mean=1.00, median=1
+  LOD 1: min=4, max=4, mean=4.00, median=4
+  LOD 2: min=16, max=16, mean=16.00, median=16
+  LOD 3: min=64, max=64, mean=64.00, median=64
+  LOD 4: min=32, max=128, mean=76.38, median=76
+  LOD 5: min=12, max=136, mean=61.04, median=60
+
+expansion_probs=[0.3, 0.2]
+--------------------------------------------------------------------------------
+Total nodes: min=133, max=329, mean=223.09, median=221
+Nodes by LOD:
+  LOD 0: min=1, max=1, mean=1.00, median=1
+  LOD 1: min=4, max=4, mean=4.00, median=4
+  LOD 2: min=16, max=16, mean=16.00, median=16
+  LOD 3: min=64, max=64, mean=64.00, median=64
+  LOD 4: min=32, max=124, mean=76.64, median=76
+  LOD 5: min=12, max=136, mean=61.45, median=60
+
+expansion_probs=[0.3, 0.4]
+--------------------------------------------------------------------------------
+Total nodes: min=165, max=421, mean=283.96, median=285
+Nodes by LOD:
+  LOD 0: min=1, max=1, mean=1.00, median=1
+  LOD 1: min=4, max=4, mean=4.00, median=4
+  LOD 2: min=16, max=16, mean=16.00, median=16
+  LOD 3: min=64, max=64, mean=64.00, median=64
+  LOD 4: min=32, max=124, mean=76.74, median=76
+  LOD 5: min=40, max=220, mean=122.22, median=120
