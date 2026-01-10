@@ -14,3 +14,7 @@ __pycache__/
 *.png
 pretrained_weight/
 visualization/
+wandb/
+vq_ckpts/
+*.zip
+inference_output/

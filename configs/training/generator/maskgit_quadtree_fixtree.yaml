@@ -14,7 +14,7 @@ experiment:
 
 tokenizer:
     type: "quadtok"
-    tokenizer_ckpt_dir: "/mnt/petrelfs/jianglihan/my_code/quadtok/checkpoints/quadtok_sl256_vq_ts8-expandprob34/checkpoint-250000/ema_model/pytorch_model.bin"
+    tokenizer_ckpt_dir: "/mnt/ultracube/zec016/quadtok/vq_ckpts/tokenizer_ckpt.bin"
     vae_embed_dim: 8 # keep the same with "token_size" in "vq_model"
 
 
@@ -51,12 +51,14 @@ model:
         class_label_dropout: 0.1
         image_seq_len: 261
         condition_num_classes: 1000
+        class_num: 1000
 
         # sampling hyper-params on the flight
         # best params
-        num_steps: 16
-        randomize_temperature: 2.5
-        guidance_scale: 8.5
+        num_steps: 64
+        randomize_temperature: 2.8
+        guidance_scale: 6.9
+        guidance_scale_pow: 3.0
         guidance_decay: "power-cosine"
 
 

@@ -15,7 +15,7 @@ experiment:
 
 tokenizer:
     type: "quadtok"
-    tokenizer_ckpt_dir: "checkpoints/quadtok_sl256_vae_ts16-expandprob34/checkpoint-300000/ema_model/pytorch_model.bin"
+    tokenizer_ckpt_dir: "/mnt/ultracube/zec016/quadtok/vq_ckpts/tokenizer_ckpt.bin"
     vae_embed_dim: 16 # keep the same with "token_size" in "vq_model"
 
 

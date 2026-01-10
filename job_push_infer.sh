@@ -1,17 +1,3 @@
-#!/bin/bash
-#SBATCH -p efm_p
-#SBATCH -N 1                    # 申请 1 个节点
-#SBATCH --gres=gpu:8            # 申请 8 张 GPU
-#SBATCH --ntasks-per-node=1     # 每个节点启 1 个任务 (即 1 个 accelerate 实例)
-#SBATCH --cpus-per-task=32      # CPU 核心数 (单机数据加载压力大，建议给足)
-#SBATCH -J base         # 任务名称
-#SBATCH -o logs/infer_%j.out # 日志输出
-
-source /mnt/petrelfs/jianglihan/miniforge3/bin/activate 1d
-
-cd /mnt/petrelfs/jianglihan/my_code/quadtok
-
-# 设置环境变量
 export LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:$LD_LIBRARY_PATH
 export PYTHONUNBUFFERED=1
 export WANDB_MODE=offline 
@@ -24,7 +10,7 @@ echo "Master IP: $MASTER_ADDR"
 echo "Master Port: $MASTER_PORT"
 
 
-launcher="accelerate launch \
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 accelerate launch \
   --num_processes=8 \
   --num_machines=1 \
   --machine_rank=0 \
@@ -32,13 +18,7 @@ launcher="accelerate launch \
   --main_process_port=$MASTER_PORT \
   --mixed_precision=bf16 \
   scripts/inference_generator.py \
-  --config checkpoints/generator/mar_quadtree_fixtree/config.yaml \
+  --config /mnt/ultracube/zec016/quadtok/configs/training/generator/maskgit_quadtree_fixtree.yaml \
   --num_samples 50000 \
   --batch_size 32 \
-  --guidance_scale 1.0 \
-  --guidance_decay constant"
-
-echo "Command to run:"
-echo "$launcher"
-
-srun bash -c "$launcher"
+  --checkpoint /mnt/ultracube/zec016/quadtok/vq_ckpts/generator_ckpt.bin \

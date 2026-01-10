@@ -33,6 +33,7 @@ def main(args):
     
     if accelerator.is_main_process:
         logger.info("Loading model model...")
+    
     config = OmegaConf.load(args.config)
 
     tokenizer_checkpoint = config.tokenizer.get("tokenizer_ckpt_dir", None)
@@ -83,10 +84,11 @@ def main(args):
         base_output_dir = Path(config.experiment.output_dir) / "inference_output"
         # Format: gs{guidance_scale}_gd{guidance_decay}_n{num_samples}
         # Sanitize guidance_decay string for filesystem
-        guidance_decay_str = str(args.guidance_decay).replace("/", "_").replace("\\", "_").replace(" ", "_")
+        guidance_decay_str = str(config.model.generator.guidance_decay).replace("/", "_").replace("\\", "_").replace(" ", "_")
         # Format guidance_scale to avoid too many decimal places
-        gs_str = f"{args.guidance_scale:.2f}".rstrip("0").rstrip(".")
-        output_dir_name = f"{checkpoints[-1].name}_cfg_{gs_str}_decay_{guidance_decay_str}_num_{num_samples}"
+        gs_str = f"{config.model.generator.guidance_scale:.2f}".rstrip("0").rstrip(".")
+        gs_pow_str = f"{config.model.generator.guidance_scale_pow:.2f}".rstrip("0").rstrip(".")
+        output_dir_name = f"scale_{gs_str}_pow_{gs_pow_str}_decay_{guidance_decay_str}_temp_{config.model.generator.randomize_temperature:.2f}_steps_{config.model.generator.num_steps}_num_{local_num_samples}"
         args.output_dir = base_output_dir / output_dir_name
     else:
         args.output_dir = Path(args.output_dir)
@@ -121,12 +123,12 @@ def main(args):
                 generator,
                 tokenizer,
                 labels=batch_labels,
-                guidance_scale=args.guidance_scale,
-                guidance_decay=args.guidance_decay,
-                guidance_scale_pow=args.guidance_scale_pow,
-                randomize_temperature=args.randomize_temperature,
+                guidance_scale=config.model.generator.guidance_scale,
+                guidance_decay=config.model.generator.guidance_decay,
+                guidance_scale_pow=config.model.generator.guidance_scale_pow,
+                randomize_temperature=config.model.generator.randomize_temperature,
                 softmax_temperature_annealing=args.softmax_temperature_annealing,
-                num_sample_steps=args.num_sample_steps,
+                num_sample_steps=config.model.generator.num_steps,
                 device=device,
                 return_tensor=False
             )

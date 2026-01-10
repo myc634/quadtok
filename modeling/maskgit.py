@@ -118,7 +118,7 @@ class ImageBert(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2304.12244"], pipe
                  randomize_temperature=4.5,
                  softmax_temperature_annealing=False,
                  num_sample_steps=128):
-        with open("/mnt/petrelfs/jianglihan/my_code/quadtok/fixed_quadtree_low.json", 'r') as f:
+        with open("/mnt/ultracube/zec016/quadtok/fixed_quadtree_low.json", 'r') as f:
             tree_dict_json = json.load(f)
         final_tree_dict = {}
         lod_incides = []
