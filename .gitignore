@@ -18,3 +18,5 @@ wandb/
 vq_ckpts/
 *.zip
 inference_output/
+*.png
+*.bin

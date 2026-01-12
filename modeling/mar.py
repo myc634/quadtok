@@ -2503,7 +2503,7 @@ class QuadtreeGPT(BaseModel):
         # max_seq_len = 0
         # for lod_idx in final_tree.keys():
         #     max_seq_len += len(final_tree[lod_idx])
-        with open("/mnt/petrelfs/jianglihan/my_code/quadtok/fixed_quadtree_low.json", 'r') as f:
+        with open("/mnt/ultracube/zec016/quadtok/fixed_quadtree_low.json", 'r') as f:
             tree_dict_json = json.load(f)
         final_tree_dict = {}
         lod_incides = []
@@ -2554,6 +2554,8 @@ class QuadtreeGPT(BaseModel):
             if not guidance_scale == 1.0:
                 cond_logits, uncond_logits = torch.chunk(token_logitis, 2, dim=0)
                 logits = uncond_logits + cfg_iter * (cond_logits - uncond_logits)
+            else:
+                logits = token_logitis
 
             incides = sample(logits, randomize_temperature)[0]
 
