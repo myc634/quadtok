@@ -92,7 +92,7 @@ def sample_fn(generator,
         if tokenizer.quantize_mode == "vq":
             bs, len = generated_tokens.shape
             generated_tokens = tokenizer.quantize.get_codebook_entry(generated_tokens.flatten(0, 1).long()).view(bs, len, -1)
-        generated_image = tokenizer.decoder._forward_optimize(generated_tokens, tree)
+        generated_image = tokenizer.decoder._forward_reconstruction(generated_tokens, tree)
     else:
         generated_image = tokenizer.decode_tokens(
             generated_tokens.view(generated_tokens.shape[0], -1)

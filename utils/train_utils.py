@@ -864,7 +864,7 @@ def train_one_epoch_generator(
             input_tokens = target_tokens[:, :-1] # remove the last token
 
             conditions = batch["class_id"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True)
-            breakpoint()
+            tree_dict = dict(lod_indices=batch["lod_indices"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True), patch_indices=batch["patch_indices"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True))
         else:
             raise ValueError(f"Not found valid keys: {batch.keys()}")
         data_time_meter.update(time.time() - end)
@@ -884,8 +884,7 @@ def train_one_epoch_generator(
             elif config.model.generator_type in ["mar", "mar-causal"]:
                 loss, loss_dict = model(input_tokens, conditions)
             elif config.model.generator_type in ["mar-quadtree", "gpt-quadtree"]:
-                # loss, loss_dict = model(input_tokens, target_tokens, tree_dict, conditions)
-                loss, loss_dict = model(input_tokens, target_tokens, node_incides, conditions)
+                loss, loss_dict = model(input_tokens, target_tokens, tree_dict, conditions)
             elif config.model.generator_type in ["dit"]:
                 loss, loss_dict = model(target_tokens, tree_dict, conditions)
             # Gather the losses across all processes for logging.
@@ -921,25 +920,6 @@ def train_one_epoch_generator(
                 samples_per_second_per_gpu = (
                     config.training.gradient_accumulation_steps * config.training.per_gpu_batch_size / batch_time_meter.val
                 )
-                if "z" in loss_dict.keys() and accelerator.is_main_process:
-                    pass
-                    # bs, seq_len, _ = loss_dict['z'].shape
-                    # with torch.no_grad():
-                    #     sampled_token = accelerator.unwrap_model(model).diffloss.sample(loss_dict['z'].flatten(0, 1), 1, 1.0).view(bs, seq_len, -1)
-                    # breakpoint()
-                    # prediction_images([sampled_token[:4], tree_list[:4]], tokenizer, target_tokens[:4], accelerator, global_step + 1, config.experiment.output_dir, logger=logger, config=config)
-                elif "token_logits" in loss_dict.keys() and accelerator.is_main_process:
-                    pass
-                    # token_probs = F.softmax(loss_dict['token_logits'][:2], dim=-1)
-                    # token_idx = torch.multinomial(token_probs.flatten(0, 1), num_samples=1).squeeze(-1)
-                    # sampled_token = tokenizer.quantize.get_codebook_entry(token_idx).view(2, -1, config.model.selector.token_size)
-
-                    # # get gt tokens
-                    # valid_mask = target_tokens[:2] >= 0  # (B, N)
-                    # safe_indices = torch.where(valid_mask, target_tokens[:2], torch.zeros_like(target_tokens[:2]))
-                    # target_token = tokenizer.quantize.get_codebook_entry(safe_indices.flatten()).view(2, -1, config.model.selector.token_size)
-
-                    # prediction_images([sampled_token, batch['tree'][:2]], tokenizer, target_token, accelerator, global_step + 1, config.experiment.output_dir, logger=logger, config=config)
 
                 lr = lr_scheduler.get_last_lr()[0]
                 if config.model.generator_type in ["mar-quadtree"]:

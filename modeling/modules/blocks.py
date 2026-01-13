@@ -1651,34 +1651,34 @@ class QuadTokSelctor(nn.Module):
     def forward(self, latent_feats, tree_structure=None, policy_output=None):
         return self._forward_reconstruction(latent_feats, tree_structure)
 
-class BoxNerfEmbedder(nn.Module):
-    def __init__(self, in_channels, hidden_size_input, max_freqs=8, num_coords=4):
+#################################################################################
+#                      Embedding Layers for Class Labels                        #
+#################################################################################
+class LabelEmbedder(nn.Module):
+    """
+    Embeds class labels into vector representations. Also handles label dropout for classifier-free guidance.
+    """
+    def __init__(self, num_classes, hidden_size, dropout_prob):
         super().__init__()
-        self.max_freqs = max_freqs
-        self.num_coords = num_coords
-        self.freq_dim = num_coords * max_freqs * 2 
-        
-        self.embedder = nn.Sequential(
-            nn.Linear(in_channels + self.freq_dim, hidden_size_input, bias=True),
-        )
+        use_cfg_embedding = dropout_prob > 0
+        self.embedding_table = nn.Embedding(num_classes + use_cfg_embedding, hidden_size)
+        self.num_classes = num_classes
+        self.dropout_prob = dropout_prob
 
-    def compute_fourier_features(self, boxes):
-        device = boxes.device
-        dtype = boxes.dtype
-        
-        freqs = torch.linspace(1.0, self.max_freqs, self.max_freqs, device=device, dtype=dtype)
-        x = boxes.unsqueeze(-1) 
-        f = freqs.view(1, 1, 1, -1)
-        x_bands = x * f * torch.pi # (B, N, 4, max_freqs)
+    def token_drop(self, labels, force_drop_ids=None):
+        """
+        Drops labels to enable classifier-free guidance.
+        """
+        if force_drop_ids is None:
+            drop_ids = torch.rand(labels.shape[0], device=labels.device) < self.dropout_prob
+        else:
+            drop_ids = force_drop_ids == 1
+        labels = torch.where(drop_ids, self.num_classes, labels)
+        return labels
 
-        fourier_features = torch.cat([torch.sin(x_bands), torch.cos(x_bands)], dim=-1)
-        fourier_features = fourier_features.view(boxes.shape[0], boxes.shape[1], -1)
-        
-        return fourier_features
-
-    def forward(self, x, boxes):
-        box_emb = self.compute_fourier_features(boxes)
-     
-        x_input = torch.cat([x, box_emb], dim=-1)
-        out = self.embedder(x_input)
-        return out
+    def forward(self, labels, train, force_drop_ids=None):
+        use_dropout = self.dropout_prob > 0
+        if (train and use_dropout) or (force_drop_ids is not None):
+            labels = self.token_drop(labels, force_drop_ids)
+        embeddings = self.embedding_table(labels).unsqueeze(1)
+        return embeddings
