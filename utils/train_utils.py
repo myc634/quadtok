@@ -30,12 +30,12 @@ import torch.nn.functional as F
 from omegaconf import OmegaConf
 from torch.optim import AdamW
 from utils.lr_schedulers import get_scheduler
-from modeling.modules import EMAModel, ReconstructionLoss_Stage1, ReconstructionLoss_Single_Stage_Repa, MLMLoss, ReconstructionLoss_Single_Stage, ReconstructionLoss_Reward, DiffLoss
+from modeling.modules import EMAModel, ReconstructionLoss_Stage1, ReconstructionLoss_Single_Stage_Repa, MLMLoss, ReconstructionLoss_Single_Stage, ReconstructionLoss_Stage_Multi_Scale, DiffLoss
 from modeling.titok import TiTok, PretrainedTokenizer as TiTokPretrainedTokenizer
 from modeling.one_d_piece import OneDPiece, PretrainedTokenizer as OneDPiecePretrainedTokenizer
 from modeling.quadtok import QuadTok, PolicyQuadTok
 from modeling.maskgit import ImageBert, UViTBert
-from modeling.mar import MAR, CausalMAR, QuadtreeMAR, QuadtreeGPT, QuadtreeMARBox
+from modeling.mar import MAR, CausalMAR, QuadtreeMAR, QuadtreeGPT
 from modeling.dit import DiT
 from eval.utils.evaluator import VQGANEvaluator
 from demo_util import sample_fn
@@ -193,11 +193,12 @@ def create_model(config, logger, accelerator,
     # Print Model for sanity check.
     if accelerator.is_main_process:
         if model_type in ["titok", "one_d_piece", "quadtok"]:
-            if not model.train_policy:
-                input_size = (1, 3, config.dataset.preprocessing.crop_size, config.dataset.preprocessing.crop_size)
-                model_summary_str = summary(model, input_size=input_size, depth=5,
-                col_names=("input_size", "output_size", "num_params", "params_percent", "kernel_size", "mult_adds"))
-                logger.info(model_summary_str)
+            pass
+            # if not model.train_policy:
+            #     input_size = (1, 3, config.dataset.preprocessing.crop_size, config.dataset.preprocessing.crop_size)
+            #     model_summary_str = summary(model, input_size=input_size, depth=5,
+            #     col_names=("input_size", "output_size", "num_params", "params_percent", "kernel_size", "mult_adds"))
+            #     logger.info(model_summary_str)
         elif model_type in ["maskgit"]:
             pass
             # input_size = (1, config.model.vq_model.num_latent_tokens)
@@ -598,51 +599,33 @@ def train_one_epoch(config, logger, accelerator,
                 )
 
                 lr = lr_scheduler.get_last_lr()[0]
-                if not config.model.train_policy:
-                    if config.model.vq_model.quantize_mode == "vq":
-                        logger.info(
-                            f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
-                            f"Batch (t): {batch_time_meter.val:0.4f} "
-                            f"LR: {lr:0.6f} "
-                            f"Step: {global_step + 1} "
-                            f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
-                            f"Quantizer Loss: {autoencoder_logs['train/quantizer_loss']:0.4f} "
-                            f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
-                            + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
-                            + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
-                        )
-                    elif config.model.vq_model.quantize_mode == "vae":
-                        logger.info(
-                            f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
-                            f"Batch (t): {batch_time_meter.val:0.4f} "
-                            f"LR: {lr:0.6f} "
-                            f"Step: {global_step + 1} "
-                            f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
-                            f"KL Loss: {autoencoder_logs['train/kl_loss']:0.4f} "
-                            # f"Repa Loss: {autoencoder_logs['train/repa_loss']:0.4f} "
-                            f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
-                            + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
-                            + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
-                        )
+                if config.model.vq_model.quantize_mode == "vq":
+                    logger.info(
+                        f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
+                        f"Batch (t): {batch_time_meter.val:0.4f} "
+                        f"LR: {lr:0.6f} "
+                        f"Step: {global_step + 1} "
+                        f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
+                        f"Quantizer Loss: {autoencoder_logs['train/quantizer_loss']:0.4f} "
+                        f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
+                        + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
+                        + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
+                    )
+                elif config.model.vq_model.quantize_mode == "vae":
+                    logger.info(
+                        f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
+                        f"Batch (t): {batch_time_meter.val:0.4f} "
+                        f"LR: {lr:0.6f} "
+                        f"Step: {global_step + 1} "
+                        f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
+                        f"KL Loss: {autoencoder_logs['train/kl_loss']:0.4f} "
+                        # f"Repa Loss: {autoencoder_logs['train/repa_loss']:0.4f} "
+                        f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
+                        + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
+                        + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
+                    )
                 else:
-                    if config.model.vq_model.quantize_mode == "vae":
-                        logger.info(
-                            f"Data (t): {data_time_meter.val:0.4f}, {samples_per_second_per_gpu:0.2f}/s/gpu "
-                            f"Batch (t): {batch_time_meter.val:0.4f} "
-                            f"LR: {lr:0.6f} "
-                            f"Step: {global_step + 1} "
-                            f"Total Loss: {autoencoder_logs['train/total_loss']:0.4f} "
-                            f"Policy Loss: {autoencoder_logs['train/policy_loss']:0.4f} "
-                            f"Prob Number: {autoencoder_logs['train/prob_mean']:0.4f} "
-                            f"Reward: {autoencoder_logs['train/reward']:0.4f} "
-                            f"KL Loss: {autoencoder_logs['train/kl_loss']:0.4f} "
-                            f"Token Number: {autoencoder_logs['train/num_tokens']:0.2f} "
-                            f"Recon Loss: {autoencoder_logs['train/reconstruction_loss']:0.4f} "
-                            + (f"Discriminator Loss: {autoencoder_logs['train/weighted_gan_loss']:0.4f} " if "train/weighted_gan_loss" in autoencoder_logs else "")
-                            + (f"Perceptual Loss: {autoencoder_logs['train/perceptual_loss']:0.4f} " if "train/perceptual_loss" in autoencoder_logs else "")
-                        )
-                    else:
-                        NotImplementedError
+                    NotImplementedError
                 logs = {
                     "lr": lr,
                     "lr/generator": lr,
@@ -874,101 +857,14 @@ def train_one_epoch_generator(
                         z_quantized_batch, result_dict = tokenizer.quantize(z_batch)
                         target_tokens = result_dict['min_encoding_indices'].squeeze(1)
                     input_tokens = target_tokens[:, :-1].clone()
-                    # Build ordered node sequence from final_tree_dict (same order as token sequence)
-                    # ordered_nodes_for_seq = []
-                    # for lod_idx in sorted(final_tree_dict.keys()):
-                    #     ordered_nodes_for_seq.extend(final_tree_dict[lod_idx])
-                    
-                    # seq_len = len(ordered_nodes_for_seq)
-                    # batch_size = target_tokens.shape[0]
-
-                    # input_tokens = target_tokens[:, :-1].clone()
-                    
-                    # # Build full quadtree to get child_to_parent_map
-                    # full_tree_root = build_quadtree(num_patch_side_list)
-                    # ordered_full_nodes = get_ordered_nodes(full_tree_root, len(num_patch_side_list))
-                    # node_to_idx_map = {
-                    #     (node.lod_level, node.patch_index): i 
-                    #     for i, node in enumerate(ordered_full_nodes)
-                    # }
-                    # child_to_parent_map = {}
-                    # for parent_node in ordered_full_nodes:
-                    #     for child_node in parent_node.children:
-                    #         child_key = (child_node.lod_level, child_node.patch_index)
-                    #         if child_key in node_to_idx_map:
-                    #             child_to_parent_map[child_key] = parent_node
-                    
-                    # # Map each node (lod_level, patch_index) -> token position in sequence
-                    # token_pos_map = {
-                    #     (node.lod_level, node.patch_index): idx
-                    #     for idx, node in enumerate(ordered_nodes_for_seq)
-                    # }
-                    
-                    # # Build parent_idx tensor: each element represents parent's token idx
-                    # parent_indices_list = []
-                    # for i, node in enumerate(ordered_nodes_for_seq):
-                    #     child_key = (node.lod_level, node.patch_index)
-                    #     parent_node = child_to_parent_map.get(child_key, None)
-                    #     if parent_node is None:
-                    #         # Root node or missing parent -> keep -1
-                    #         parent_indices_list.append(-1)
-                    #     else:
-                    #         parent_key = (parent_node.lod_level, parent_node.patch_index)
-                    #         parent_token_idx = token_pos_map.get(parent_key, -1)
-                    #         parent_indices_list.append(parent_token_idx)
-                    
-                    # parent_idx = torch.tensor(parent_indices_list, dtype=torch.long, device=accelerator.device)
-                    # parent_idx = parent_idx.unsqueeze(0).repeat(batch_size, 1)  # (batch_size, seq_len)
-                    
-                    # # Build lod_indices tensor: each element represents current node's LOD level
-                    # lod_indices_list = [node.lod_level for node in ordered_nodes_for_seq]
-                    # lod_indices = torch.tensor(lod_indices_list, dtype=torch.long, device=accelerator.device)
-                    # lod_indices = lod_indices.unsqueeze(0).repeat(batch_size, 1)  # (batch_size, seq_len)
-                    
-                    # # Modify input_tokens: replace tokens at positions with parent tokens
-                    # # input_tokens shape: (batch_size, seq_len - 1)
-                    # parent_idx_slice = parent_idx[:, 1:]  # Skip position 0, shape: (batch_size, seq_len - 1)
-                    # valid_mask = parent_idx_slice != -1  # (batch_size, seq_len - 1)
-                    
-                    # batch_indices = torch.arange(batch_size, device=target_tokens.device).unsqueeze(1).expand(-1, seq_len - 1)
-                    # pos_indices = torch.arange(seq_len - 1, device=target_tokens.device).unsqueeze(0).expand(batch_size, -1)
-                    
-                    # valid_batch = batch_indices[valid_mask]
-                    # valid_pos = pos_indices[valid_mask]
-                    # valid_parent_idx = parent_idx_slice[valid_mask]
-                    
-                    # if len(valid_batch) > 0:
-                    #     # Replace input_tokens at valid positions with parent tokens
-                    #     input_tokens[valid_batch, valid_pos] = target_tokens[valid_batch, valid_parent_idx]
-
-                    
-        elif "z_quantized" in batch:
-            target_tokens = batch["z_quantized"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True)
-            # recentering! import for diffusion training
-            # target_tokens = target_tokens - config.model.generator.recenter_factor
+         
+        elif "code_indices" in batch:
+            # use batch 0 for debugging:
+            target_tokens = batch["code_indices"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True)
             input_tokens = target_tokens[:, :-1] # remove the last token
 
             conditions = batch["class_id"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True)
-            tree_dict = dict(status=batch['status'].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True),
-                             lengths=batch['lengths'].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True),
-                             tree=batch['tree'])
-            parent_idx = batch["parent_idx"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True)
-            batch_size, seq_len = target_tokens.shape[:2]
-
-            parent_idx_slice = parent_idx[:, 1:]  # Skip position 0
-            valid_mask = parent_idx_slice != -1  # (batch_size, seq_len - 1)
-
-            parent_tokens = torch.zeros_like(target_tokens)[:, 1:]
-                                     
-            batch_indices = torch.arange(batch_size, device=target_tokens.device).unsqueeze(1).expand(-1, seq_len - 1)
-            pos_indices = torch.arange(seq_len - 1, device=target_tokens.device).unsqueeze(0).expand(batch_size, -1)
-            
-            valid_batch = batch_indices[valid_mask]
-            valid_pos = pos_indices[valid_mask]
-            valid_parent_idx = parent_idx_slice[valid_mask]
-            
-            if len(valid_batch) > 0:
-                parent_tokens[valid_batch, valid_pos] = target_tokens[valid_batch, valid_parent_idx]
+            breakpoint()
         else:
             raise ValueError(f"Not found valid keys: {batch.keys()}")
         data_time_meter.update(time.time() - end)
@@ -1154,6 +1050,8 @@ def eval_reconstruction(
         reconstructed_images, model_dict = local_model(images, **additional_args)
         if pretrained_tokenizer is not None:
             reconstructed_images = pretrained_tokenizer.decode(reconstructed_images.argmax(1))
+        if isinstance(reconstructed_images, dict):
+            reconstructed_images = reconstructed_images[5]
         reconstructed_images = torch.clamp(reconstructed_images, 0.0, 1.0)
         # Quantize to uint8
         reconstructed_images = torch.round(reconstructed_images * 255.0) / 255.0
@@ -1189,6 +1087,8 @@ def reconstruct_images(model, original_images, fnames, accelerator,
     with torch.autocast("cuda", dtype=dtype, enabled=accelerator.mixed_precision != "no"):
         reconstructed_images, encoder_dict = accelerator.unwrap_model(model)(original_images)
 
+    if isinstance(reconstructed_images, dict):
+        reconstructed_images = reconstructed_images[5]
 
     images_for_saving, images_for_logging = make_viz_from_samples(
         original_images,

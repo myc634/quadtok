@@ -15,6 +15,7 @@ from typing import List, Union, Text
 import webdataset as wds
 from torch.utils.data import default_collate
 from torchvision import transforms
+from data.augmentation import center_crop_arr
 import torchvision.transforms.functional as F
 from .classes import IMAGENET2012_CLASSES
 from torch.nn.utils.rnn import pad_sequence
@@ -78,6 +79,26 @@ class ImageTransform:
         )
         print(f"self.train_transform: {self.train_transform}")
         print(f"self.eval_transform: {self.eval_transform}")
+
+class QuadtreeImageTransform:
+    def __init__(self,
+                 resize_shorter_edge: int = 256,
+                 image_size: int = 256,
+                 random_crop: bool = True,
+                 random_flip: bool = True,
+                 crop_range: float = 1.1,
+                 normalize_mean: List[float] = [0., 0., 0.],
+                 normalize_std: List[float] = [1., 1., 1.]):
+
+        crop_size = int(image_size * crop_range)
+        transform = transforms.Compose([
+            transforms.Lambda(lambda pil_image: center_crop_arr(pil_image, crop_size)),
+            transforms.TenCrop(image_size), # this is a tuple of PIL Images
+            transforms.Lambda(lambda crops: torch.stack([transforms.ToTensor()(crop) for crop in crops])), # returns a 4D tensor
+            # transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True)
+            transforms.Normalize(mean=[0., 0., 0.], std=[1.0, 1.0, 1.0], inplace=True)
+        ])
+        self.transform = transform
 
 
 class SimpleImageDataset:
@@ -224,8 +245,9 @@ class QuadtreeImageDataset:
         num_workers_per_gpu: int = 12,
     ):
         """Initializes the QuadtreeImageDataset class."""
-        transform = ImageTransform(
-            resize_shorter_edge, crop_size, random_crop, random_flip,
+        crop_range = 1.1
+        transform = QuadtreeImageTransform(
+            resize_shorter_edge, crop_size, random_crop, random_flip, crop_range,
             normalize_mean, normalize_std)
 
         # The user wants augmentation like in training
@@ -238,20 +260,22 @@ class QuadtreeImageDataset:
             ),
             wds.map(filter_keys(set(["image", "class_id", "filename"]))),
             wds.map_dict(
-                image=transform.train_transform, # Using train_transform for augmentation
+                image=transform.transform, # Using train_transform for augmentation
                 class_id=lambda x: int(x),
                 handler=wds.warn_and_continue,
             ),
         ]
 
         # batchsize is 1, iterate once
-        pipeline = [
+        self._dataset = wds.DataPipeline(
             wds.SimpleShardList(shards_path),
+            wds.split_by_node,
+            wds.split_by_worker,
             wds.tarfile_to_samples(handler=wds.warn_and_continue),
             *processing_pipeline,
-            wds.batched(1, partial=True, collation_fn=default_collate),
-        ]
-        self._dataset = wds.DataPipeline(*pipeline)
+            wds.batched(1) 
+        )
+
         self._dataloader = wds.WebLoader(
             self._dataset,
             batch_size=None,
@@ -275,35 +299,28 @@ class PretokenizedDataset:
         num_train_examples: int,
         num_workers_per_gpu: int = 12,
     ):
-        """Initializes the PretokenizedQuadtreeDataset class."""
-
-        def unpack_metadata_from_dict(sample):
-            metadata = sample.pop("metadata")
-            sample["tree"] = metadata["tree"]
-            sample["status"] = torch.tensor(metadata["status"], dtype=torch.long)
-            return sample
+        """Initializes the PretokenizedDataset class for random quadtree extracted codes."""
 
         def pad_collate_fn(batch):
             # batch is a list of dicts
-            z_quantized_list = [sample['z_quantized'] for sample in batch]
-            parent_idx_list = [sample['parent_idx'] for sample in batch]   # 新增
-            trees = [sample['tree'] for sample in batch]
-            statuses = [sample['status'] for sample in batch]
+            code_indices_list = [sample['code_indices'] for sample in batch]
+            lod_indices_list = [sample['lod_indices'] for sample in batch]
+            patch_indices_list = [sample['patch_indices'] for sample in batch]
             class_ids = [sample['class_id'] for sample in batch]
             
             # Calculate lengths before padding
-            lengths = torch.tensor([len(seq) for seq in z_quantized_list], dtype=torch.long)
+            lengths = torch.tensor([len(seq) for seq in code_indices_list], dtype=torch.long)
             
-            # Pad z_quantized sequences only
-            z_quantized_padded = pad_sequence(z_quantized_list, batch_first=True, padding_value=-1.0)
-            parent_idx_padded = pad_sequence(parent_idx_list, batch_first=True, padding_value=-1.0)
+            # Pad sequences
+            code_indices_padded = pad_sequence(code_indices_list, batch_first=True, padding_value=-1)
+            lod_indices_padded = pad_sequence(lod_indices_list, batch_first=True, padding_value=-1)
+            patch_indices_padded = pad_sequence(patch_indices_list, batch_first=True, padding_value=-1)
             
             return {
-                'z_quantized': z_quantized_padded,
-                'parent_idx': parent_idx_padded,
-                'tree': trees,  # Keep as list of dicts
-                'status': torch.stack(statuses),  # Keep as list of tensors
-                'class_id': torch.tensor(class_ids, dtype=torch.long),  # Keep as list of ints
+                'code_indices': code_indices_padded,
+                'lod_indices': lod_indices_padded,
+                'patch_indices': patch_indices_padded,
+                'class_id': torch.tensor(class_ids, dtype=torch.long),
                 'lengths': lengths
             }
 
@@ -311,14 +328,13 @@ class PretokenizedDataset:
             wds.ResampledShards(shards_path),
             wds.tarfile_to_samples(handler=wds.warn_and_continue),
             wds.decode(wds.autodecode.basichandlers, handler=wds.warn_and_continue),
-            wds.rename(z_quantized="npy", parent_idx="parent_idx.npy", metadata="json", class_id="cls", handler=wds.warn_and_continue),
+            wds.rename(code_indices="code_indices.npy", lod_indices="lod_indices.npy", patch_indices="patch_indices.npy", class_id="cls", handler=wds.warn_and_continue),
             wds.map_dict(
-                z_quantized=torch.from_numpy,
-                parent_idx=torch.from_numpy,
-                # metadata is already decoded by autodecode.basichandlers, no need to json.loads
+                code_indices=torch.from_numpy,
+                lod_indices=torch.from_numpy,
+                patch_indices=torch.from_numpy,
                 class_id=int
             ),
-            wds.map(unpack_metadata_from_dict),
             wds.batched(per_gpu_batch_size, partial=False, collation_fn=pad_collate_fn),
         ]
 

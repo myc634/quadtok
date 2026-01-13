@@ -1,7 +1,7 @@
 experiment:
     project: "dynamic_tokenizer"
-    name: "quadtok_sl256_vae_ts16-expandprob34-new"
-    output_dir: "checkpoints/quadtok_sl256_vae_ts16-expandprob34-new"
+    name: "quadtok_sl256_vae_ts16-blockcausal-singleloss"
+    output_dir: "checkpoints/quadtok_sl256_vae_ts16-blockcausal-singleloss"
     max_train_examples: 685_800_000. #  Converge at 300_000
     save_every: 50_000
     eval_every: 50_000
@@ -75,7 +75,7 @@ lr_scheduler:
 
 training:
     gradient_accumulation_steps: 1
-    per_gpu_batch_size: 32
+    per_gpu_batch_size: 64
     mixed_precision: "bf16"
     enable_tf32: True
     enable_wandb: True

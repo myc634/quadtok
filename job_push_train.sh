@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH -p efm_p
+#SBATCH -p si
 #SBATCH -N 1                    # 申请 1 个节点
 #SBATCH --gres=gpu:8            # 申请 8 张 GPU
 #SBATCH --ntasks-per-node=1     # 每个节点启 1 个任务 (即 1 个 accelerate 实例)
 #SBATCH --cpus-per-task=32      # CPU 核心数 (单机数据加载压力大，建议给足)
 #SBATCH -J base         # 任务名称
-#SBATCH -o logs/toktrain_vae_resume_%j.out # 日志输出
+#SBATCH -o logs/toktrain_vq_%j.out # 日志输出
 
 source /mnt/petrelfs/jianglihan/miniforge3/bin/activate 1d
 
@@ -31,7 +31,7 @@ launcher="accelerate launch \
   --main_process_ip=$MASTER_ADDR \
   --main_process_port=$MASTER_PORT \
   --mixed_precision=bf16 \
-  scripts/train_tokenizer.py config=configs/training/single_stage/quadtok_ss256_vae.yaml"
+  scripts/train_tokenizer.py config=configs/training/single_stage/quadtok_ss256_vq.yaml"
 
 echo "Command to run:"
 echo "$launcher"

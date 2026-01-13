@@ -1455,10 +1455,6 @@ class QuadTokSelctor(nn.Module):
         self.ln_post = nn.LayerNorm(self.width)
         self.out_proj = nn.Linear(self.width, self.token_size)
 
-        if self.repa_param is not None:
-            self.ln_align = nn.LayerNorm(self.width)
-            self.out_proj_align = nn.Linear(self.width, 768)
-
         self.ordered_full_nodes = self._get_ordered_nodes(build_quadtree(self.num_patch_side_list))
 
 

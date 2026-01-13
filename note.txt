@@ -1,12 +1,12 @@
-
+srun --jobid=7071127 /bin/bash
 source ~/.bashrc
 nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.total,memory.used,memory.free --format=csv -l 1 > /mnt/petrelfs/jianglihan/my_code/quadtok/gpu.log &
 
-PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_tokenizer.py config=configs/training/single_stage/quadtok_ss256_vae.yaml
+PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_tokenizer.py config=configs/training/single_stage/quadtok_ss256_vq.yaml
 
 PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_tokenizer.py config=configs/training/single_stage/quadtok_ss256_vae_repa.yaml
 
-PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_generator.py config=configs/training/generator/mar_quadtree.yaml
+PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_generator.py config=configs/training/generator/gpt_quadtree.yaml
 
 CUDA_LAUNCH_BLOCKING=1 PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_generator.py config=configs/training/generator/gpt_quadtree_fixtree.yaml
 
@@ -41,58 +41,6 @@ rjob submit \
     -e DISTRIBUTED_JOB=false \
     -- bash -exc /mnt/shared-storage-user/jianglihan/project/my_scripts/batch_pretokenize.sh
 
-rjob submit \
-    --name=nvsdiffusion-resume  \
-    --gpu=4 \
-    --memory=800000 \
-    --cpu=80 \
-    --namespace ailab-idc2 \
-    --charged-group=idc2_gpu \
-    --private-machine=group \
-    --mount=gpfs://gpfs1/jianglihan:/mnt/shared-storage-user/jianglihan \
-    --mount=gpfs://gpfs1/idc2-shared:/mnt/shared-storage-user/idc2-shared \
-    --image=registry.h.pjlab.org.cn/ailab-idc2-idc2_gpu/jianglihan:base \
-    --custom-resources=brainpp.cn/fuse=1 \
-    -P 1 \
-    --host-network=true \
-    -e DISTRIBUTED_JOB=false \
-    -- bash -exc /mnt/shared-storage-user/jianglihan/myc/code/quadtok/job_push_train.sh
-
-
-rjob submit \
-    --name=nvsgene  \
-    --gpu=8 \
-    --memory=1600000 \
-    --cpu=160 \
-    --namespace ailab-idc3 \
-    --charged-group=idc3_gpu \
-    --private-machine=group \
-    --mount=gpfs://gpfs1/jianglihan:/mnt/shared-storage-user/jianglihan \
-    --mount=gpfs://gpfs1/idc2-shared:/mnt/shared-storage-user/idc2-shared \
-    --image=registry.h.pjlab.org.cn/ailab-idc2-idc2_gpu/jianglihan:base \
-    --custom-resources=brainpp.cn/fuse=1 \
-    -P 1 \
-    --host-network=true \
-    -e DISTRIBUTED_JOB=false \
-    -- bash -exc /mnt/shared-storage-user/jianglihan/myc/code/quadtok/job_push_train_generation.sh
-
-rjob submit \
-    --name=generation-base  \
-    --gpu=7 \
-    --memory=1400000 \
-    --cpu=140 \
-    --namespace ailab-idc3 \
-    --charged-group=idc3_gpu \
-    --private-machine=group \
-    --mount=gpfs://gpfs1/jianglihan:/mnt/shared-storage-user/jianglihan \
-    --mount=gpfs://gpfs1/idc2-shared:/mnt/shared-storage-user/idc2-shared \
-    --image=registry.h.pjlab.org.cn/ailab-idc2-idc2_gpu/jianglihan:base \
-    --custom-resources=brainpp.cn/fuse=1 \
-    -P 2 \
-    --host-network=true \
-    -e DISTRIBUTED_JOB=false \
-    -- bash -exc /mnt/shared-storage-user/jianglihan/myc/code/quadtok/job_push_train_generation.sh
-
 sudo WANDB_MODE=disabled accelerate launch \
     --mixed_precision=bf16 \
     --num_machines=1 \
@@ -104,18 +52,6 @@ sudo WANDB_MODE=disabled accelerate launch \
     scripts/eval_tokenizer.py \
         --work_dir checkpoints/quadtok_sl256_vq_ts8_unifsample_300kgan_gd3_0.8-0.7 \
         --output_dir generated/quadtok_sl256
-
-WANDB_MODE=disabled accelerate launch \
-    --mixed_precision=bf16 \
-    --num_machines=1 \
-    --num_processes=1 \
-    --machine_rank=0 \
-    --main_process_ip=127.0.0.1 \
-    --main_process_port=12389 \
-    --same_network \
-    scripts/search_quadtree_tokenizer_parallel_batch.py \
-        --config_dir configs/training/policy_stage/quadtok_ss256_vae_pretokenization.yaml \
-        --output_dir visualization/vq_debug 
 
 
 sudo WANDB_MODE=disabled accelerate launch \
@@ -140,9 +76,7 @@ python scripts/eval_external_tokenizer.py --config configs/external_model/sdxl_v
 python scripts/inference_generator.py \
     --config checkpoints/generator/maskgit_quadtree_fixtree/config.yaml \
     --num_samples 1000 \
-    --batch_size 32 \
-    --guidance_scale 8.0 \
-    --guidance_decay power-cosine
+    --batch_size 32
 
 accelerate launch scripts/inference_generator.py \
     --config checkpoints/generator/mar_quadtree_base/config.yaml \
@@ -150,3 +84,13 @@ accelerate launch scripts/inference_generator.py \
     --batch_size 2 \
     --guidance_scale 3.0 \
     --guidance_decay constant
+
+python scripts/extract_code_randomquadtree.py \
+    --config_dir checkpoints/quadtok_sl256_vq_ts12-4096codebook-base/config.yaml \
+    --output_dir extract_token_log \
+    --shards_index 0 \
+    --tokenizer_weight checkpoints/quadtok_sl256_vq_ts12-4096codebook-base/checkpoint-200000-save/ema_model/pytorch_model.bin \
+    --output_tar_path /mnt/petrelfs/jianglihan/my_code/tmp_imagenet_codes/debug
+
+
+rclone  copy --progress --transfers 200 --checkers 200 --links /mnt/petrelfs/jianglihan/my_code/tmp_imagenet_codes/debug/imagenet-train-000000.tar hoss:jianglihan/data/imagenet-debug

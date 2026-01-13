@@ -276,7 +276,7 @@ if __name__ == "__main__":
     N_RUNS = 10_000_0 
     PATCHES_PER_SIDE = [1, 2, 4, 8, 16, 32]
     GUARANTEED_DEPTH = 3
-    TUNED_PROBS = [0.7, 0.4]
+    TUNED_PROBS = [0.25, 0.2]
     
     MAX_LOD = len(PATCHES_PER_SIDE) - 1
     

@@ -1,8 +1,8 @@
 experiment:
     project: "dynamic_tokenizer_generation"
     name: "gpt_quadtree_fixtree"
-    # output_dir: "checkpoints/generator/debug"
-    output_dir: "checkpoints/generator/gpt_quadtree_fixtree"
+    output_dir: "checkpoints/generator/debug"
+    # output_dir: "checkpoints/generator/gpt_quadtree_fixtree"
     max_train_examples: 1_281_167
     save_every: 10_000
     eval_every: 50_000
@@ -14,8 +14,8 @@ experiment:
 
 tokenizer:
     type: "quadtok"
-    tokenizer_ckpt_dir: "/mnt/petrelfs/jianglihan/my_code/quadtok/checkpoints/quadtok_sl256_vq_ts8-expandprob34/checkpoint-200000/ema_model/pytorch_model.bin"
-    vae_embed_dim: 8 # keep the same with "token_size" in "vq_model"
+    tokenizer_ckpt_dir: "checkpoints/quadtok_sl256_vq_ts12-4096codebook-base/save-checkpoint-200000/ema_model/pytorch_model.bin"
+    vae_embed_dim: 12 # keep the same with "token_size" in "vq_model"
 
 
 model:
@@ -25,16 +25,16 @@ model:
       quantize_mode: vq
       # vit arch
       vit_enc_model_size: "small"
-      vit_dec_model_size: "small"
+      vit_dec_model_size: "large"
       vit_enc_patch_size: 16
       vit_dec_patch_size: 16
       decoder_token_size: 256
-      codebook_size: 16384
+      codebook_size: 4096
       use_l2_norm: true
       commitment_cost: 0.25
-      token_size: 8
+      token_size: 12
     selector:
-      token_size: 8
+      token_size: 12
       num_patch_side_list: [1, 2, 4, 8, 16, 32] 
       patch_size_list: [16, 16, 16, 16, 16, 8]
     
@@ -70,7 +70,7 @@ losses:
 dataset:
     type: "pre_tokenized"
     params:
-        shards_path: "pipe:rclone cat hoss:jianglihan/data/imagenet-tokenized-vq/imagenet-train-{000000..000070}.tar"
+        shards_path: "pipe:rclone cat hoss:jianglihan/data/imagenet-debug/imagenet-train-{000000..000010}.tar"
         num_workers_per_gpu: 12
      # unused in pre_tokenized dataset
     preprocessing:

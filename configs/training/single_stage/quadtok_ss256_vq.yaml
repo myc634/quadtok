@@ -1,7 +1,7 @@
 experiment:
     project: "dynamic_tokenizer"
-    name: "quadtok_sl256_vq_ts8-expandprob34"
-    output_dir: "checkpoints/quadtok_sl256_vq_ts8-expandprob34"
+    name: "quadtok_sl256_vq_ts12-4096codebook-base-expandprob22"
+    output_dir: "checkpoints/quadtok_sl256_vq_ts12-4096codebook-base-expandprob22"
     max_train_examples: 685_800_000
     save_every: 50_000
     eval_every: 50_000
@@ -21,17 +21,17 @@ model:
       quantize_mode: vq
       # vit arch
       vit_enc_model_size: "small"
-      vit_dec_model_size: "small"
+      vit_dec_model_size: "large"
       vit_enc_patch_size: 16
       vit_dec_patch_size: 16
       decoder_token_size: 256
       # codebook setting
-      codebook_size: 16384
+      codebook_size: 4096
       use_l2_norm: True
       commitment_cost: 0.25
-      token_size: 8
+      token_size: 12
     selector:
-      token_size: 8
+      token_size: 12
       num_patch_side_list: [1, 2, 4, 8, 16, 32]
       patch_size_list: [16, 16, 16, 16, 16, 8]
 
@@ -78,7 +78,7 @@ lr_scheduler:
 
 training:
     gradient_accumulation_steps: 1
-    per_gpu_batch_size: 32
+    per_gpu_batch_size: 64
     mixed_precision: "bf16"
     enable_tf32: True
     enable_wandb: True

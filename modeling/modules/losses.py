@@ -584,7 +584,212 @@ class ReconstructionLoss_Reward(torch.nn.Module):
 
         return total_loss, loss_dict
    
+class ReconstructionLoss_Stage_Multi_Scale(torch.nn.Module):
+    def __init__(
+        self,
+        config
+    ):
+        """Initializes the losses module.
 
+        Args:
+            config: A dictionary, the configuration for the model and everything else.
+        """
+        super().__init__()
+        loss_config = config.losses
+        self.discriminator = NLayerDiscriminator()
+
+        self.reconstruction_loss = loss_config.reconstruction_loss
+        self.reconstruction_weight = loss_config.reconstruction_weight
+        self.quantizer_weight = loss_config.quantizer_weight
+        self.perceptual_loss = PerceptualLoss(
+            loss_config.perceptual_loss).eval()
+        self.perceptual_weight = loss_config.perceptual_weight
+        self.discriminator_iter_start = loss_config.discriminator_start
+
+        self.discriminator_factor = loss_config.discriminator_factor
+        self.discriminator_weight = loss_config.discriminator_weight
+        self.lecam_regularization_weight = loss_config.lecam_regularization_weight
+        self.lecam_ema_decay = loss_config.get("lecam_ema_decay", 0.999)
+        if self.lecam_regularization_weight > 0.0:
+            self.register_buffer("ema_real_logits_mean", torch.zeros((1)))
+            self.register_buffer("ema_fake_logits_mean", torch.zeros((1)))
+
+        self.config = config
+
+        loss_config = config.losses
+        self.quantize_mode = config.model.vq_model.get("quantize_mode", "vq")
+        
+        if self.quantize_mode == "vae":
+            self.kl_weight = loss_config.get("kl_weight", 1e-6)
+            logvar_init = loss_config.get("logvar_init", 0.0)
+            self.logvar = nn.Parameter(torch.ones(size=()) * logvar_init, requires_grad=False)
+
+
+    @autocast('cuda', enabled=False)
+    def forward(self,
+                inputs: torch.Tensor,
+                reconstructions: torch.Tensor,
+                extra_result_dict: Mapping[Text, torch.Tensor],
+                global_step: int,
+                mode: str = "generator",
+                ) -> Tuple[torch.Tensor, Mapping[Text, torch.Tensor]]:
+        # Both inputs and reconstructions are in range [0, 1].
+
+        # counstruct input/output here
+        input_dict = dict()
+        for lod, reconstruction in reconstructions.items():
+            input_img = F.interpolate(inputs, reconstruction.shape[-2:], mode="bilinear")
+            input_dict[lod] = input_img.float()
+
+        if mode == "generator":
+            return self._forward_generator(input_dict, reconstructions, extra_result_dict, global_step)
+        elif mode == "discriminator":
+            return self._forward_discriminator(input_dict[5], reconstructions[5], global_step)
+        else:
+            raise ValueError(f"Unsupported mode {mode}")
+
+    def _compute_reconstruction_loss(self, inputs: torch.Tensor, reconstructions: torch.Tensor, lod_idx: int):
+
+        inputs = inputs.contiguous().float()
+        reconstructions = reconstructions.contiguous().float()
+        if self.reconstruction_loss == "l1":
+            reconstruction_loss = F.l1_loss(inputs, reconstructions, reduction="mean")
+        elif self.reconstruction_loss == "l2":
+            reconstruction_loss = F.mse_loss(inputs, reconstructions, reduction="mean")
+        else:
+            raise ValueError(f"Unsuppored reconstruction_loss {self.reconstruction_loss}")
+        reconstruction_loss *= self.reconstruction_weight
+        # Compute perceptual loss.
+        if lod_idx > 3:
+            perceptual_loss = self.perceptual_loss(inputs, reconstructions).mean()
+        else:
+            perceptual_loss = torch.zeros_like(inputs).mean()
+
+        mse_batch = torch.mean((inputs - reconstructions) ** 2, dim=[1, 2, 3])
+        # Calculate PSNR for each image and sum them. Max pixel value is 1.0.
+        psnr_batch = -10 * torch.log10(mse_batch + 1e-7)
+
+        reconstruction_loss_dict = dict(
+            reconstruction_loss=reconstruction_loss.detach(),
+            perceptual_loss=(self.perceptual_weight * perceptual_loss).detach(),
+            psnr=psnr_batch.mean().detach(),
+        )
+
+        return reconstruction_loss + self.perceptual_weight * perceptual_loss, reconstruction_loss_dict
+
+    def _compute_generator_loss(self, inputs: torch.Tensor, reconstructions: torch.Tensor, global_step):
+        
+        inputs = inputs.contiguous().float()
+        reconstructions = reconstructions.contiguous().float()
+        generator_loss = torch.zeros((), device=inputs.device)
+        discriminator_factor = self.discriminator_factor if self.should_discriminator_be_trained(global_step) else 0
+        d_weight = 1.0
+        if discriminator_factor > 0.0 and self.discriminator_weight > 0.0:
+            # Disable discriminator gradients.
+            for param in self.discriminator.parameters():
+                param.requires_grad = False
+            logits_fake = self.discriminator(reconstructions)
+            generator_loss = -torch.mean(logits_fake)
+
+        d_weight *= self.discriminator_weight
+
+        generator_loss_dict = dict(
+            weighted_gan_loss=(d_weight * discriminator_factor * generator_loss).detach(),
+            discriminator_factor=torch.tensor(discriminator_factor),
+            d_weight=d_weight,
+            gan_loss=generator_loss.detach(),
+        )
+
+        return d_weight * discriminator_factor * generator_loss, generator_loss_dict
+
+    def should_discriminator_be_trained(self, global_step : int):
+        return global_step >= self.discriminator_iter_start
+
+    def _forward_generator(self,
+                           inputs_dict: torch.Tensor,
+                           reconstructions_dict: torch.Tensor,
+                           extra_result_dict: Mapping[Text, torch.Tensor],
+                           global_step: int
+                           ) -> Tuple[torch.Tensor, Mapping[Text, torch.Tensor]]:
+        """Generator training step."""
+        weight_dict = [0.1, 0.1, 0.1, 0.1, 0.25, 0.5]
+        total_loss, loss_dict = 0, dict()
+        psnr_list, perceptual_list = [], []
+        # TODO: preceptal loss only added after 4, 5 lod, gan loss only on layer 5
+        for ((lod_idx, inputs), (lod_idx, reconstructions)) in zip(inputs_dict.items(), reconstructions_dict.items()):
+            lod_recon_loss, lod_recon_loss_dict = self._compute_reconstruction_loss(inputs, reconstructions, lod_idx)
+            loss_dict.update({f"psnr/{lod_idx}": lod_recon_loss_dict["psnr"]})
+            loss_dict.update({f"perceptual/{lod_idx}": lod_recon_loss_dict["perceptual_loss"]})
+            
+            total_loss += lod_recon_loss * weight_dict[lod_idx]
+            
+            # we only log last layer
+            if lod_idx == 5:
+                lod_generator_loss, lod_generator_dict = self._compute_generator_loss(inputs, reconstructions, global_step)
+                total_loss += (lod_recon_loss + lod_generator_loss) * weight_dict[lod_idx]
+            
+                loss_dict.update(lod_recon_loss_dict)
+                loss_dict.update(lod_generator_dict)
+        loss_dict.update({"total_loss": total_loss.clone().detach()})
+
+        if self.quantize_mode == "vq":
+            total_loss += self.quantizer_weight * quantizer_loss
+            loss_dict.update({"quantizer_loss": (self.quantizer_weight * quantizer_loss).detach(),
+                               "commitment_loss": extra_result_dict["commitment_loss"].detach(),
+                                "codebook_loss": extra_result_dict["codebook_loss"].detach(),})
+        elif self.quantize_mode == "vae":
+            posteriors = extra_result_dict['posteriors']
+            kl_loss = posteriors.kl()
+            kl_loss = torch.sum(kl_loss) / kl_loss.shape[0]
+            total_loss += self.kl_weight * kl_loss
+
+            loss_dict.update({"kl_loss": (self.kl_weight * kl_loss).detach()})
+
+        else:
+            raise NotImplementedError
+
+        return total_loss, loss_dict
+
+    def _forward_discriminator(self,
+                               inputs: torch.Tensor,
+                               reconstructions: torch.Tensor,
+                               global_step: int,
+                               ) -> Tuple[torch.Tensor, Mapping[Text, torch.Tensor]]:
+        """Discrminator training step."""
+        discriminator_factor = self.discriminator_factor if self.should_discriminator_be_trained(global_step) else 0
+        loss_dict = {}
+        # Turn the gradients on.
+        for param in self.discriminator.parameters():
+            param.requires_grad = True
+
+        real_images = inputs.detach().requires_grad_(True)
+        logits_real = self.discriminator(real_images)
+        logits_fake = self.discriminator(reconstructions.detach())
+
+        discriminator_loss = discriminator_factor * hinge_d_loss(logits_real=logits_real, logits_fake=logits_fake)
+
+        # optional lecam regularization
+        lecam_loss = torch.zeros((), device=inputs.device)
+        if self.lecam_regularization_weight > 0.0:
+            lecam_loss = compute_lecam_loss(
+                torch.mean(logits_real),
+                torch.mean(logits_fake),
+                self.ema_real_logits_mean,
+                self.ema_fake_logits_mean
+            ) * self.lecam_regularization_weight
+
+            self.ema_real_logits_mean = self.ema_real_logits_mean * self.lecam_ema_decay + torch.mean(logits_real).detach()  * (1 - self.lecam_ema_decay)
+            self.ema_fake_logits_mean = self.ema_fake_logits_mean * self.lecam_ema_decay + torch.mean(logits_fake).detach()  * (1 - self.lecam_ema_decay)
+        
+        discriminator_loss += lecam_loss
+
+        loss_dict = dict(
+            discriminator_loss=discriminator_loss.detach(),
+            logits_real=logits_real.detach().mean(),
+            logits_fake=logits_fake.detach().mean(),
+            lecam_loss=lecam_loss.detach(),
+        )
+        return discriminator_loss, loss_dict
 
 class MLMLoss(torch.nn.Module):
     def __init__(self,
