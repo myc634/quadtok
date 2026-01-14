@@ -1,0 +1,88 @@
+[Wed Jan 14 06:01:04 AM UTC 2026] FAILED: Shard 5 failed on GPU 5 with exit code 130
+[Wed Jan 14 06:01:04 AM UTC 2026] FAILED: Shard 4 failed on GPU 4 with exit code 130
+[Wed Jan 14 06:01:05 AM UTC 2026] FAILED: Shard 3 failed on GPU 3 with exit code 130
+[Wed Jan 14 06:01:05 AM UTC 2026] FAILED: Shard 0 failed on GPU 0 with exit code 130
+[Wed Jan 14 06:01:05 AM UTC 2026] FAILED: Shard 2 failed on GPU 2 with exit code 130
+[Wed Jan 14 06:01:05 AM UTC 2026] FAILED: Shard 1 failed on GPU 1 with exit code 130
+[Wed Jan 14 06:19:55 AM UTC 2026] FAILED: Shard 6 failed on GPU 6 with exit code 1
+[Wed Jan 14 06:20:12 AM UTC 2026] FAILED: Shard 4 failed on GPU 4 with exit code 1
+[Wed Jan 14 06:20:12 AM UTC 2026] FAILED: Shard 7 failed on GPU 7 with exit code 1
+[Wed Jan 14 06:20:16 AM UTC 2026] FAILED: Shard 2 failed on GPU 2 with exit code 1
+[Wed Jan 14 06:20:16 AM UTC 2026] FAILED: Shard 1 failed on GPU 1 with exit code 1
+[Wed Jan 14 06:20:20 AM UTC 2026] FAILED: Shard 0 failed on GPU 0 with exit code 1
+[Wed Jan 14 06:20:20 AM UTC 2026] FAILED: Shard 3 failed on GPU 3 with exit code 1
+[Wed Jan 14 06:20:21 AM UTC 2026] FAILED: Shard 5 failed on GPU 5 with exit code 1
+[Wed Jan 14 06:21:20 AM UTC 2026] FAILED: Shard 15 failed on GPU 7 with exit code 1
+[Wed Jan 14 06:21:38 AM UTC 2026] FAILED: Shard 12 failed on GPU 4 with exit code 1
+[Wed Jan 14 06:21:40 AM UTC 2026] FAILED: Shard 11 failed on GPU 3 with exit code 1
+[Wed Jan 14 06:21:40 AM UTC 2026] FAILED: Shard 8 failed on GPU 0 with exit code 1
+[Wed Jan 14 06:21:47 AM UTC 2026] FAILED: Shard 13 failed on GPU 5 with exit code 1
+[Wed Jan 14 06:21:47 AM UTC 2026] FAILED: Shard 10 failed on GPU 2 with exit code 1
+[Wed Jan 14 06:21:48 AM UTC 2026] FAILED: Shard 9 failed on GPU 1 with exit code 1
+[Wed Jan 14 06:21:48 AM UTC 2026] FAILED: Shard 14 failed on GPU 6 with exit code 1
+[Wed Jan 14 06:22:17 AM UTC 2026] FAILED: Shard 16 failed on GPU 0 with exit code 1
+[Wed Jan 14 06:22:36 AM UTC 2026] FAILED: Shard 23 failed on GPU 7 with exit code 1
+[Wed Jan 14 06:23:05 AM UTC 2026] FAILED: Shard 24 failed on GPU 0 with exit code 1
+[Wed Jan 14 06:23:07 AM UTC 2026] FAILED: Shard 17 failed on GPU 1 with exit code 1
+[Wed Jan 14 06:23:13 AM UTC 2026] FAILED: Shard 18 failed on GPU 2 with exit code 1
+[Wed Jan 14 06:23:14 AM UTC 2026] FAILED: Shard 22 failed on GPU 6 with exit code 1
+[Wed Jan 14 06:23:14 AM UTC 2026] FAILED: Shard 21 failed on GPU 5 with exit code 1
+[Wed Jan 14 06:23:14 AM UTC 2026] FAILED: Shard 20 failed on GPU 4 with exit code 1
+[Wed Jan 14 06:23:14 AM UTC 2026] FAILED: Shard 19 failed on GPU 3 with exit code 1
+[Wed Jan 14 06:23:55 AM UTC 2026] FAILED: Shard 25 failed on GPU 1 with exit code 1
+[Wed Jan 14 06:24:09 AM UTC 2026] FAILED: Shard 30 failed on GPU 6 with exit code 1
+[Wed Jan 14 06:24:12 AM UTC 2026] FAILED: Shard 29 failed on GPU 5 with exit code 1
+[Wed Jan 14 06:24:27 AM UTC 2026] FAILED: Shard 26 failed on GPU 2 with exit code 1
+[Wed Jan 14 06:24:30 AM UTC 2026] FAILED: Shard 27 failed on GPU 3 with exit code 1
+[Wed Jan 14 06:24:30 AM UTC 2026] FAILED: Shard 28 failed on GPU 4 with exit code 1
+[Wed Jan 14 06:24:32 AM UTC 2026] FAILED: Shard 31 failed on GPU 7 with exit code 1
+[Wed Jan 14 06:24:32 AM UTC 2026] FAILED: Shard 32 failed on GPU 0 with exit code 1
+[Wed Jan 14 06:24:32 AM UTC 2026] Batch processing completed
+[Wed Jan 14 08:12:53 PM UTC 2026] FAILED: Shard 7 failed on GPU 7 with exit code 130
+[Wed Jan 14 08:12:53 PM UTC 2026] FAILED: Shard 6 failed on GPU 6 with exit code 130
+[Wed Jan 14 08:12:53 PM UTC 2026] FAILED: Shard 5 failed on GPU 5 with exit code 130
+[Wed Jan 14 08:12:53 PM UTC 2026] FAILED: Shard 2 failed on GPU 2 with exit code 130
+[Wed Jan 14 08:12:53 PM UTC 2026] FAILED: Shard 0 failed on GPU 0 with exit code 130
+[Wed Jan 14 08:12:53 PM UTC 2026] FAILED: Shard 1 failed on GPU 1 with exit code 130
+[Wed Jan 14 08:12:53 PM UTC 2026] FAILED: Shard 3 failed on GPU 3 with exit code 130
+[Wed Jan 14 08:12:53 PM UTC 2026] FAILED: Shard 4 failed on GPU 4 with exit code 130
+[Wed Jan 14 08:18:36 PM UTC 2026] FAILED: Shard 6 failed on GPU 6 with exit code 1
+[Wed Jan 14 08:18:40 PM UTC 2026] FAILED: Shard 1 failed on GPU 1 with exit code 1
+[Wed Jan 14 08:18:58 PM UTC 2026] FAILED: Shard 7 failed on GPU 7 with exit code 1
+[Wed Jan 14 08:18:58 PM UTC 2026] FAILED: Shard 5 failed on GPU 5 with exit code 1
+[Wed Jan 14 08:18:58 PM UTC 2026] FAILED: Shard 0 failed on GPU 0 with exit code 1
+[Wed Jan 14 08:18:58 PM UTC 2026] FAILED: Shard 2 failed on GPU 2 with exit code 1
+[Wed Jan 14 08:18:58 PM UTC 2026] FAILED: Shard 3 failed on GPU 3 with exit code 1
+[Wed Jan 14 08:18:58 PM UTC 2026] FAILED: Shard 4 failed on GPU 4 with exit code 1
+[Wed Jan 14 08:18:59 PM UTC 2026] FAILED: Shard 8 failed on GPU 0 with exit code 1
+[Wed Jan 14 08:21:29 PM UTC 2026] FAILED: Shard 3 failed on GPU 3 with exit code 1
+[Wed Jan 14 08:21:29 PM UTC 2026] FAILED: Shard 5 failed on GPU 5 with exit code 1
+[Wed Jan 14 08:21:31 PM UTC 2026] FAILED: Shard 6 failed on GPU 6 with exit code 1
+[Wed Jan 14 08:21:36 PM UTC 2026] FAILED: Shard 0 failed on GPU 0 with exit code 1
+[Wed Jan 14 08:21:36 PM UTC 2026] FAILED: Shard 4 failed on GPU 4 with exit code 1
+[Wed Jan 14 08:21:36 PM UTC 2026] FAILED: Shard 2 failed on GPU 2 with exit code 1
+[Wed Jan 14 08:21:36 PM UTC 2026] FAILED: Shard 1 failed on GPU 1 with exit code 1
+[Wed Jan 14 08:21:36 PM UTC 2026] FAILED: Shard 7 failed on GPU 7 with exit code 1
+[Wed Jan 14 08:21:42 PM UTC 2026] FAILED: Shard 8 failed on GPU 0 with exit code 1
+[Wed Jan 14 08:22:30 PM UTC 2026] FAILED: Shard 0 failed on GPU 0 with exit code 1
+[Wed Jan 14 08:22:48 PM UTC 2026] FAILED: Shard 1 failed on GPU 0 with exit code 1
+[Wed Jan 14 08:23:06 PM UTC 2026] FAILED: Shard 2 failed on GPU 0 with exit code 1
+[Wed Jan 14 08:23:10 PM UTC 2026] FAILED: Shard 3 failed on GPU 0 with exit code 130
+[Wed Jan 14 08:38:10 PM UTC 2026] FAILED: Shard 7 failed on GPU 7 with exit code 130
+[Wed Jan 14 08:38:10 PM UTC 2026] FAILED: Shard 0 failed on GPU 0 with exit code 130
+[Wed Jan 14 08:38:10 PM UTC 2026] FAILED: Shard 6 failed on GPU 6 with exit code 130
+[Wed Jan 14 08:38:10 PM UTC 2026] FAILED: Shard 2 failed on GPU 2 with exit code 130
+[Wed Jan 14 08:38:10 PM UTC 2026] FAILED: Shard 4 failed on GPU 4 with exit code 130
+[Wed Jan 14 08:38:10 PM UTC 2026] FAILED: Shard 5 failed on GPU 5 with exit code 130
+[Wed Jan 14 08:38:10 PM UTC 2026] FAILED: Shard 3 failed on GPU 3 with exit code 130
+[Wed Jan 14 08:38:10 PM UTC 2026] FAILED: Shard 1 failed on GPU 1 with exit code 130
+[Wed Jan 14 09:27:52 PM UTC 2026] SUCCESS: Shard 3 completed on GPU 3
+[Wed Jan 14 09:27:57 PM UTC 2026] SUCCESS: Shard 4 completed on GPU 4
+[Wed Jan 14 09:28:21 PM UTC 2026] SUCCESS: Shard 0 completed on GPU 0
+[Wed Jan 14 09:28:49 PM UTC 2026] SUCCESS: Shard 2 completed on GPU 2
+[Wed Jan 14 09:29:03 PM UTC 2026] SUCCESS: Shard 7 completed on GPU 7
+[Wed Jan 14 09:29:03 PM UTC 2026] SUCCESS: Shard 1 completed on GPU 1
+[Wed Jan 14 09:29:07 PM UTC 2026] SUCCESS: Shard 5 completed on GPU 5
+[Wed Jan 14 09:30:16 PM UTC 2026] SUCCESS: Shard 6 completed on GPU 6
+[Wed Jan 14 10:16:11 PM UTC 2026] SUCCESS: Shard 8 completed on GPU 0
+[Wed Jan 14 10:16:11 PM UTC 2026] Batch processing completed

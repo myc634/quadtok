@@ -1722,11 +1722,14 @@ class QuadtreeGPT(BaseModel):
         z = self.out_norm(z)
         token_logits = self.output(z).float()
         total_loss = F.cross_entropy(token_logits[valid_mask].contiguous().float(), target_tokens[valid_mask].contiguous(), reduction="mean")
+        pred_tokens = torch.argmax(token_logits, dim=-1)
+        acc = (pred_tokens == target_tokens)[valid_mask].float().mean()
         loss_dict = {}
         # Combine losses
 
         loss_dict['total_loss'] = total_loss.mean().detach()
         loss_dict['token_logits'] = token_logits.detach() 
+        loss_dict['acc'] = acc.detach()
         return total_loss, loss_dict
 
     @torch.no_grad()
@@ -1797,7 +1800,6 @@ class QuadtreeGPT(BaseModel):
         cache_position = self.cls_token_num
 
         for step in tqdm(range(max_seq_len)):
-
             token_logitis = self.forward_inference(x, cur_freqs_cis, input_pos)
 
             if not guidance_scale == 1.0:
@@ -1805,6 +1807,10 @@ class QuadtreeGPT(BaseModel):
                     cfg_iter = 1 + (guidance_scale - 1) * (step) / max_seq_len
                 elif guidance_decay == "constant":
                     cfg_iter = guidance_scale
+                elif guidance_decay == "power-cosine":
+                    scale_pow = torch.ones((1), device=device) * guidance_scale_pow
+                    scale_step = (1 - torch.cos(((step / max_seq_len) ** scale_pow) * torch.pi)) * 1/2
+                    cfg_iter = (guidance_scale - 1) * scale_step + 1
             else:
                 cfg_iter = guidance_scale
             if not guidance_scale == 1.0:
@@ -1829,5 +1835,4 @@ class QuadtreeGPT(BaseModel):
             input_pos = torch.arange(cache_position, cache_position + 1, device=condition.device)
             cache_position += 1
         self.remove_caches()
-        breakpoint()
         return result_tokens, tree_root

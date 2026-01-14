@@ -950,6 +950,7 @@ def train_one_epoch_generator(
                             f"LR: {lr:0.6f} "
                             f"Step: {global_step + 1} "
                             f"Loss: {loss_logs['train/total_loss']:0.4f} "
+                            f"Acc: {loss_logs['train/acc']:0.4f} "
                         )
                 logs = {
                     "lr": lr,

@@ -238,6 +238,7 @@ class QuadtreeImageDataset:
         shards_path: Union[Text, List[Text]],
         resize_shorter_edge: int = 256,
         crop_size: int = 256,
+        crop_range: float = 1.1,
         random_crop: bool = True,
         random_flip: bool = True,
         normalize_mean: List[float] = [0., 0., 0.],
@@ -245,7 +246,6 @@ class QuadtreeImageDataset:
         num_workers_per_gpu: int = 12,
     ):
         """Initializes the QuadtreeImageDataset class."""
-        crop_range = 1.1
         transform = QuadtreeImageTransform(
             resize_shorter_edge, crop_size, random_crop, random_flip, crop_range,
             normalize_mean, normalize_std)
