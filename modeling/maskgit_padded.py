@@ -38,6 +38,7 @@ from modeling.modules.blocks import UViTBlock
 
 from modeling.utils import QuadTreeNode
 import copy
+from modeling.utils import build_quadtree, build_probabilistic_quadtree, tree_to_decision_nodes_dict, QuadTreeNode, _get_parent_patch_index
 
 
 class ImageBertPadded(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2304.12244"], pipeline_tag="text_to_image", license="mit"):
@@ -199,9 +200,10 @@ class ImageBertPadded(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2304.12244"]
         attention_mask = (input_ids != -1)
         input_ids[input_ids == -1] = 0
         
-        input_embeds = self.model.embeddings.word_embeddings(input_ids) + token_indices_embedding
+        inputs_embeds = self.model.embeddings.word_embeddings(input_ids)
+        inputs_embeds[:, 1:] = inputs_embeds[:, 1:] + token_indices_embedding
         
-        model_output = self.model(input_embeds=input_embeds, attention_mask=attention_mask)
+        model_output = self.model(inputs_embeds=inputs_embeds, attention_mask=attention_mask)
         model_output = model_output[0]
         return self.model.lm_head(model_output[:, 1:]) # remove cond
     
@@ -215,32 +217,31 @@ class ImageBertPadded(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2304.12244"]
                  randomize_temperature=4.5,
                  softmax_temperature_annealing=False,
                  num_sample_steps=128):
-        with open("/mnt/petrelfs/jianglihan/my_code/quadtok/fixed_quadtree_low.json", 'r') as f:
-            tree_dict_json = json.load(f)
-        final_tree_dict = {}
-        lod_incides = []
-        for lod_idx, node_dict in tree_dict_json['final_tree'].items():
-            nodes = []
-            for node_info in node_dict:
-                node = QuadTreeNode(
-                    patch_index=node_info['patch_index'],
-                    lod_level=node_info['lod_level']
-                )
-                nodes.append(node)
-                lod_incides.append(int(lod_idx))
-            final_tree_dict[int(lod_idx)] = nodes
-        lod_incides = torch.tensor(lod_incides, device=condition.device, dtype=torch.long)
 
-        tree_list = [copy.deepcopy(final_tree_dict) for _ in range(condition.shape[0])]
+        device = condition.device
+        bsz = condition.shape[0]
+        tree_root = build_probabilistic_quadtree(
+            self.num_patch_side_list, 
+            guaranteed_depth=3, 
+            expansion_probs=[0.3, 0.2]
+        )
+        final_tree = tree_to_decision_nodes_dict(tree_root, self.num_lod)
+        lod_indices, patch_incides = [], []
+        for lod_idx, nodes in final_tree.items():
+            for node in nodes:
+                lod_indices.append(node.lod_level)
+                patch_incides.append(node.patch_index)
+
+        lod_indices = torch.tensor(lod_indices, device=device, dtype=torch.long).unsqueeze(0).expand(bsz, -1)
+        patch_incides = torch.tensor(patch_incides, device=device, dtype=torch.long).unsqueeze(0).expand(bsz, -1)
+        tree_dict = dict(lod_indices=lod_indices, patch_indices=patch_incides)
 
         if guidance_decay not in ["constant", "linear", "power-cosine"]:
             # contstant: constant guidance scale
             # linear: linear increasing the guidance scale as in MUSE
             # power-cosine: the guidance schedule from MDT
             raise ValueError(f"Unsupported guidance decay {guidance_decay}")
-        device = condition.device
-        ids = torch.full((condition.shape[0], self.image_seq_len),
-                          self.mask_token_id, device=device)
+        ids = torch.full((bsz, tree_dict['lod_indices'].shape[1]), self.mask_token_id, device=device)
 
         cfg_scale = guidance_scale if guidance_decay == "constant" else 0.
 
@@ -257,10 +258,10 @@ class ImageBertPadded(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2304.12244"]
 
             if cfg_scale != 0:
                 cond_logits = self.forward(
-                    ids, condition, cond_drop_prob=0.0
+                    ids, condition, tree_dict, cond_drop_prob=0.0
                 )
                 uncond_logits = self.forward(
-                    ids, condition, cond_drop_prob=1.0
+                    ids, condition, tree_dict, cond_drop_prob=1.0
                 )
                 if guidance_decay == "power-cosine":
                     logits = uncond_logits + (cond_logits - uncond_logits) * cfg_scale
@@ -268,7 +269,7 @@ class ImageBertPadded(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2304.12244"]
                     logits = cond_logits + (cond_logits - uncond_logits) * cfg_scale
             else:
                 logits = self.forward(
-                    ids, condition, cond_drop_prob=0.0
+                    ids, condition, tree_dict, cond_drop_prob=0.0
                 )
 
             if softmax_temperature_annealing:
@@ -308,7 +309,7 @@ class ImageBertPadded(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2304.12244"]
             if guidance_decay == "linear":
                 cfg_scale = ratio * guidance_scale
 
-        return ids, tree_list
+        return ids, tree_root
 
     def masking_input_tokens(self, input_tokens):
         batch_size, seq_len = input_tokens.shape

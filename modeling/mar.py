@@ -1767,6 +1767,7 @@ class QuadtreeGPT(BaseModel):
             guaranteed_depth=3, 
             expansion_probs=[0.3, 0.2]
         )
+        tree_list = [copy.deepcopy(tree_root) for _ in range(bsz)]
         final_tree = tree_to_decision_nodes_dict(tree_root, self.num_lod)
         lod_indices, patch_incides = [], []
         for lod_idx, nodes in final_tree.items():
@@ -1814,6 +1815,7 @@ class QuadtreeGPT(BaseModel):
                     cfg_iter = (guidance_scale - 1) * scale_step + 1
             else:
                 cfg_iter = guidance_scale
+            
             if not guidance_scale == 1.0:
                 cond_logits, uncond_logits = torch.chunk(token_logitis, 2, dim=0)
                 logits = uncond_logits + cfg_iter * (cond_logits - uncond_logits)

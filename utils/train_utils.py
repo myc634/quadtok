@@ -880,9 +880,9 @@ def train_one_epoch_generator(
 
         # Randomly masking out input tokens.
         if config.model.generator_type in ["maskgit"]:
-            masked_tokens, masks = unwrap_model.masking_input_tokens(input_tokens)
+            masked_tokens, masks = unwrap_model.masking_input_tokens(target_tokens)
         elif config.model.generator_type in ["maskgit_padded"]:
-            masked_tokens, masks = unwrap_model.masking_padded_input_tokens(input_tokens)
+            masked_tokens, masks = unwrap_model.masking_padded_input_tokens(target_tokens)
             
         with accelerator.accumulate([model]):
             if config.model.generator_type in ["maskgit"]:
@@ -890,8 +890,8 @@ def train_one_epoch_generator(
                 loss, loss_dict = loss_module(logits, input_tokens, weights=masks)
             elif config.model.generator_type in ["maskgit_padded"]:
                 logits = model(masked_tokens, conditions, tree_dict, cond_drop_prob=config.model.generator.class_label_dropout)
-                valid_mask = (input_tokens != -1)
-                loss, loss_dict = loss_module(logits[valid_mask], input_tokens[valid_mask], weights=None)
+                valid_mask = (target_tokens != -1)
+                loss, loss_dict = loss_module(logits[valid_mask], target_tokens[valid_mask], weights=None)
             elif config.model.generator_type in ["mar", "mar-causal"]:
                 loss, loss_dict = model(input_tokens, conditions)
             elif config.model.generator_type in ["mar-quadtree", "gpt-quadtree"]:
