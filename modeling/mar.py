@@ -1604,7 +1604,7 @@ class QuadtreeGPT(BaseModel):
         return input_tokens, valid_mask
     
     def get_token_indices_embedding(self, tree_dict):
-
+        
         lod_indices = tree_dict['lod_indices']  # (batch_size, max_seq_len)
         patch_indices = tree_dict['patch_indices']  # (batch_size, max_seq_len)
         
@@ -1740,7 +1740,8 @@ class QuadtreeGPT(BaseModel):
                  guidance_scale_pow=3.0,
                  randomize_temperature=4.5,
                  softmax_temperature_annealing=False,
-                 num_sample_steps=8):
+                 num_sample_steps=8,
+                 preload_tokens=None):
         """
         Generate tokens following quadtree structure with autoregressive generation.
         Input sequence: [cls, pos_emb[1,0]+feature[parent[1,0]], pos_emb[1,1]+feature[parent[1,1]], ...]

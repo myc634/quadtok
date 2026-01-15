@@ -21,6 +21,7 @@ import torch
 from omegaconf import OmegaConf
 from modeling.titok import TiTok
 from modeling.maskgit import ImageBert, UViTBert
+from modeling.utils import build_tree_from_decision_nodes
 
 
 def get_config_cli():
@@ -66,7 +67,10 @@ def sample_fn(generator,
               softmax_temperature_annealing=False,
               num_sample_steps=8,
               device="cuda",
-              return_tensor=False):
+              return_tensor=False,
+              preload_tokens=None,
+              preload_trees=None,
+              patches_per_side_list=[1, 2, 4, 8, 16, 32]):
     generator.eval()
     tokenizer.eval()
     if labels is None:
@@ -87,12 +91,28 @@ def sample_fn(generator,
         softmax_temperature_annealing=softmax_temperature_annealing,
         num_sample_steps=num_sample_steps)
 
+    if preload_trees is not None:
+        tree_list = []
+        for tree_id in range(preload_trees['lod_indices'].shape[0]):
+            lod_indices = preload_trees['lod_indices'][tree_id]
+            patch_indices = preload_trees['patch_indices'][tree_id]
+            current_decision_nodes = {}
+            for lod_idx, patch_idx in zip(lod_indices, patch_indices):
+                if lod_idx not in current_decision_nodes:
+                    current_decision_nodes[lod_idx] = []
+                current_decision_nodes[lod_idx].append(patch_idx)
+            tree_root = build_tree_from_decision_nodes(current_decision_nodes, patches_per_side_list)
+            tree_list.append(tree_root)
+    
     if isinstance(generated_tokens, tuple):
         generated_tokens, tree = generated_tokens
+        generated_tokens = preload_tokens
         if tokenizer.quantize_mode == "vq":
             bs, len = generated_tokens.shape
+            generated_tokens[generated_tokens == -1] = 0
             generated_tokens = tokenizer.quantize.get_codebook_entry(generated_tokens.flatten(0, 1).long()).view(bs, len, -1)
-        generated_image = tokenizer.decoder._forward_reconstruction(generated_tokens, tree)
+        # generated_image = tokenizer.decoder._forward_reconstruction(generated_tokens, tree)
+        generated_image = tokenizer.decoder._forward_optimize(generated_tokens, tree_list)
     else:
         generated_image = tokenizer.decode_tokens(
             generated_tokens.view(generated_tokens.shape[0], -1)

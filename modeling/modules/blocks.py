@@ -35,6 +35,7 @@ from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.nn.utils.rnn import pad_sequence
 import time
 import math
+from modeling.utils import tree_to_decision_nodes_dict
 
 def modulate(x, shift, scale):
     return x * (1 + scale) + shift
@@ -1042,7 +1043,8 @@ class QuadTokDecoder(nn.Module):
 
             nodes_by_lod = {i: [] for i in range(self.num_lod)}
             for node in ordered_nodes:
-                nodes_by_lod[node.lod_level].append(node)
+                node_lod_level = node.lod_level if isinstance(node.lod_level, int) else node.lod_level.item()
+                nodes_by_lod[node_lod_level].append(node)
             for lod_idx in range(self.num_lod):
                 all_nodes_by_lod[lod_idx].append(nodes_by_lod[lod_idx])
         
@@ -1270,6 +1272,12 @@ class QuadTokDecoder(nn.Module):
         # Get ordered_nodes for all trees
         ordered_nodes_list = []
         updated_tree_structure_list = []
+        tree_structure_dict_list = []
+        if isinstance(tree_structure_list[0], QuadTreeNode):
+            for tree_structure in tree_structure_list:
+                tree_structure_dict = tree_to_decision_nodes_dict(tree_structure, self.num_lod)
+                tree_structure_dict_list.append(tree_structure_dict)
+        tree_structure_list = tree_structure_dict_list
         for tree_structure in tree_structure_list:
             ordered_nodes = []
             new_tree_structure = {}

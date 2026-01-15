@@ -807,7 +807,6 @@ def train_one_epoch_generator(
 
                 elif config.model.generator_type in ["mar", "mar-causal"]:
                     posterior = tokenizer.encode_generation(images)
-                    breakpoint()
                     input_tokens = posterior.sample().mul_(0.2325)
                 elif config.model.generator_type in ["mar-quadtree", "gpt-quadtree"]:
                     with open("/mnt/petrelfs/jianglihan/my_code/quadtok/fixed_quadtree_low.json", 'r') as f:
@@ -987,7 +986,9 @@ def train_one_epoch_generator(
                     global_step + 1,
                     config.experiment.output_dir,
                     logger=logger,
-                    config=config
+                    config=config,
+                    preload_tokens=target_tokens,
+                    preload_trees=tree_dict
                 )
                 # except Exception as e:
                 #     logger.error(f"Error generating images: {e}")
@@ -1098,7 +1099,8 @@ def reconstruct_images(model, original_images, fnames, accelerator,
 
 @torch.no_grad()
 def generate_images(model, tokenizer, accelerator, 
-                    global_step, output_dir, logger, config=None):
+                    global_step, output_dir, logger, config=None,
+                    preload_tokens=None, preload_trees=None):
     model.eval()
     tokenizer.eval()
     logger.info("Generating images...")
@@ -1112,7 +1114,9 @@ def generate_images(model, tokenizer, accelerator,
         softmax_temperature_annealing=config.model.generator.get("softmax_temperature_annealing", False),
         num_sample_steps=config.model.generator.get("num_steps", 8),
         device=accelerator.device,
-        return_tensor=True
+        return_tensor=True,
+        preload_tokens=preload_tokens,
+        preload_trees=preload_trees
     )
     images_for_saving, images_for_logging = make_viz_from_samples_generation(
         generated_image)

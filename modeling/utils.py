@@ -307,6 +307,8 @@ def build_tree_from_decision_nodes(current_decision_nodes, patches_per_side_list
     # 1. Create all QuadTreeNode objects for every active node
     for lod_level, patch_indices in current_decision_nodes.items():
         for patch_index in patch_indices:
+            lod_level = int(lod_level) if isinstance(lod_level, int) else lod_level.item()
+            patch_index = int(patch_index) if isinstance(patch_index, int) else patch_index.item()
             key = (lod_level, patch_index)
             # Create node if it doesn't exist (shouldn't be duplicates, but safe)
             if key not in node_map:
@@ -323,7 +325,6 @@ def build_tree_from_decision_nodes(current_decision_nodes, patches_per_side_list
         
         # Find the key for this node's parent
         parent_key = _get_parent_patch_index(lod_level, patch_index, patches_per_side_list)
-        
         if parent_key and parent_key in node_map:
             # If the parent exists in our map, add this node as its child
             parent_node = node_map[parent_key]
@@ -348,8 +349,9 @@ def tree_to_decision_nodes_dict(tree_root, num_lod):
     
     while queue:
         node = queue.pop(0)
-        if node.lod_level < num_lod:
-            decision_nodes[node.lod_level].append(node)
+        node_lod_level = node.lod_level if isinstance(node.lod_level, int) else node.lod_level.item()
+        if node_lod_level < num_lod:
+            decision_nodes[node_lod_level].append(node)
         for child in node.children:
             queue.append(child)
     
