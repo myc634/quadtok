@@ -30,11 +30,12 @@ import torch.nn.functional as F
 from omegaconf import OmegaConf
 from torch.optim import AdamW
 from utils.lr_schedulers import get_scheduler
-from modeling.modules import EMAModel, ReconstructionLoss_Stage1, ReconstructionLoss_Single_Stage_Repa, MLMLoss, ReconstructionLoss_Single_Stage, ReconstructionLoss_Stage_Multi_Scale, DiffLoss
+from modeling.modules import EMAModel, ReconstructionLoss_Stage1, ReconstructionLoss_Single_Stage_Repa, MLMLoss, MLMLossPadded, ReconstructionLoss_Single_Stage, ReconstructionLoss_Stage_Multi_Scale, DiffLoss
 from modeling.titok import TiTok, PretrainedTokenizer as TiTokPretrainedTokenizer
 from modeling.one_d_piece import OneDPiece, PretrainedTokenizer as OneDPiecePretrainedTokenizer
 from modeling.quadtok import QuadTok, PolicyQuadTok
 from modeling.maskgit import ImageBert, UViTBert
+from modeling.maskgit_padded import ImageBertPadded
 from modeling.mar import MAR, CausalMAR, QuadtreeMAR, QuadtreeGPT
 from modeling.dit import DiT
 from eval.utils.evaluator import VQGANEvaluator
@@ -133,11 +134,16 @@ def create_model(config, logger, accelerator,
         model_cls = OneDPiece
     elif model_type == "quadtok":
         model_cls = QuadTok
-    elif model_type == "maskgit":
+    elif model_type == ["maskgit"]:
         if config.model.generator.model_type == "ViT":
             model_cls = ImageBert
         elif config.model.generator.model_type == "UViT":
             model_cls = UViTBert
+        else:
+            raise ValueError(f"Unsupported generator model_type {config.model.generator.model_type}")
+    elif model_type == "maskgit_padded":
+        if config.model.generator.model_type == "ViT":
+            model_cls = ImageBertPadded
         else:
             raise ValueError(f"Unsupported generator model_type {config.model.generator.model_type}")
     elif model_type == "mar":
@@ -199,7 +205,7 @@ def create_model(config, logger, accelerator,
             #     model_summary_str = summary(model, input_size=input_size, depth=5,
             #     col_names=("input_size", "output_size", "num_params", "params_percent", "kernel_size", "mult_adds"))
             #     logger.info(model_summary_str)
-        elif model_type in ["maskgit"]:
+        elif model_type in ["maskgit", "maskgit_padded"]:
             pass
             # input_size = (1, config.model.vq_model.num_latent_tokens)
             # input_data = [
@@ -262,6 +268,8 @@ def create_model_and_loss_module(config, logger, accelerator,
             loss_cls = ReconstructionLoss_Single_Stage
     elif model_type == "maskgit":
         loss_cls = MLMLoss
+    elif model_type == "maskgit_padded":
+        loss_cls = MLMLossPadded
     elif model_type in ["titok", "one_d_piece", "quadtok"] and model.train_policy:
         loss_cls = ReconstructionLoss_Reward
     elif model_type in ["mar", "mar-causal", "mar-quadtree", "gpt-quadtree"]:
@@ -766,7 +774,7 @@ def train_one_epoch_generator(
             # Encode images on the flight.
             with torch.no_grad():
                 tokenizer.eval()
-                if config.model.generator_type in ["maskgit"]:
+                if config.model.generator_type in ["maskgit", "maskgit_padded"]:
                     # length = config.model.generator.image_seq_len
                     # input_tokens = tokenizer.encode(images)[1]["min_encoding_indices"]
                     # input_tokens = input_tokens[:,:,:length]
@@ -872,14 +880,18 @@ def train_one_epoch_generator(
 
         # Randomly masking out input tokens.
         if config.model.generator_type in ["maskgit"]:
-            masked_tokens, masks = unwrap_model.masking_input_tokens(
-                input_tokens)
+            masked_tokens, masks = unwrap_model.masking_input_tokens(input_tokens)
+        elif config.model.generator_type in ["maskgit_padded"]:
+            masked_tokens, masks = unwrap_model.masking_padded_input_tokens(input_tokens)
             
         with accelerator.accumulate([model]):
             if config.model.generator_type in ["maskgit"]:
-                logits = model(masked_tokens, conditions,
-                            cond_drop_prob=config.model.generator.class_label_dropout)
-                loss, loss_dict= loss_module(logits, input_tokens, weights=masks)
+                logits = model(masked_tokens, conditions, cond_drop_prob=config.model.generator.class_label_dropout)
+                loss, loss_dict = loss_module(logits, input_tokens, weights=masks)
+            elif config.model.generator_type in ["maskgit_padded"]:
+                logits = model(masked_tokens, conditions, tree_dict, cond_drop_prob=config.model.generator.class_label_dropout)
+                valid_mask = (input_tokens != -1)
+                loss, loss_dict = loss_module(logits[valid_mask], input_tokens[valid_mask], weights=None)
             elif config.model.generator_type in ["mar", "mar-causal"]:
                 loss, loss_dict = model(input_tokens, conditions)
             elif config.model.generator_type in ["mar-quadtree", "gpt-quadtree"]:

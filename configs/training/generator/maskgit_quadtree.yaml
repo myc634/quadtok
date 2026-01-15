@@ -1,0 +1,108 @@
+experiment:
+    project: "dynamic_tokenizer_generation"
+    name: "maskgit_quadtree_fixtree"
+    # output_dir: "checkpoints/generator/debug"
+    output_dir: "checkpoints/generator/maskgit_quadtree_fixtree"
+    max_train_examples: 1_281_167
+    save_every: 10_000
+    eval_every: 50_000
+    generate_every: 1000
+    log_every: 50
+    log_grad_norm_every: 1_000
+    resume: True
+    
+
+tokenizer:
+    type: "quadtok"
+    tokenizer_ckpt_dir: "./quadtok-vq-4096codebook-expandprob32-12ts.bin"
+    vae_embed_dim: 8 # keep the same with "token_size" in "vq_model"
+
+
+model:
+    type: "quadtok"
+    grad_checkpointing: True
+    vq_model:
+      quantize_mode: vq
+      # vit arch
+      vit_enc_model_size: "small"
+      vit_dec_model_size: "large"
+      vit_enc_patch_size: 16
+      vit_dec_patch_size: 16
+      decoder_token_size: 256
+      codebook_size: 4096
+      use_l2_norm: true
+      commitment_cost: 0.25
+      token_size: 12
+    selector:
+      token_size: 12
+      num_patch_side_list: [1, 2, 4, 8, 16, 32] 
+      patch_size_list: [16, 16, 16, 16, 16, 8]
+    
+
+    generator_type: "maskgit_padded"
+    generator:
+        model_type: "ViT"
+        hidden_size: 768
+        num_hidden_layers: 24
+        num_attention_heads: 16
+        intermediate_size: 3072
+        dropout: 0.1
+        attn_drop: 0.1
+        class_label_dropout: 0.1
+        image_seq_len: 384
+        condition_num_classes: 1000
+        num_patch_side_list: [1, 2, 4, 8, 16, 32]
+        patch_size_list: [16, 16, 16, 16, 16, 8]
+
+        # sampling hyper-params on the flight
+        # best params
+        num_steps: 16
+        randomize_temperature: 1.0
+        guidance_scale: 4.5
+        guidance_decay: "constant"
+
+
+losses:
+    label_smoothing: 0.1
+    loss_weight_unmasked_token: 0.0
+
+
+dataset:
+    type: "pre_tokenized"
+    params:
+        shards_path: "/mnt/ultracube/zec016/quadtok_codes_tar/imagenet-train-{000000..000007}.tar"
+        num_workers_per_gpu: 12
+    preprocessing:
+        resize_shorter_edge: 256
+        crop_size: 256
+        random_crop: True
+        random_flip: True
+        res_ratio_filtering: True
+
+optimizer:
+    name: adamw 
+    params:
+        learning_rate: 1e-4
+        beta1: 0.9
+        beta2: 0.96
+        weight_decay: 0.03
+
+
+lr_scheduler:
+    scheduler: "cosine"
+    params:
+        learning_rate: ${optimizer.params.learning_rate}
+        warmup_steps: 10_000
+        end_lr: 1e-5
+
+
+training:
+    gradient_accumulation_steps: 1
+    per_gpu_batch_size: 32 # 8 GPU, total batch size 1024
+    mixed_precision: "bf16"
+    enable_tf32: True
+    enable_wandb: True
+    use_ema: True
+    seed: 42
+    max_train_steps: 1000_000
+    max_grad_norm: 1.0

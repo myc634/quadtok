@@ -40,7 +40,7 @@ from modeling.utils import QuadTreeNode
 import copy
 
 
-class ImageBert(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2304.12244"], pipeline_tag="text_to_image", license="mit"):
+class ImageBertPadded(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2304.12244"], pipeline_tag="text_to_image", license="mit"):
     def __init__(self, config):
 
         if isinstance(config, dict):
@@ -199,9 +199,9 @@ class ImageBert(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2304.12244"], pipe
         attention_mask = (input_ids != -1)
         input_ids[input_ids == -1] = 0
         
-        inputs_embeds = self.model.embeddings.word_embeddings(input_ids) + token_indices_embedding
+        input_embeds = self.model.embeddings.word_embeddings(input_ids) + token_indices_embedding
         
-        model_output = self.model(inputs_embeds=inputs_embeds, attention_mask=attention_mask)
+        model_output = self.model(input_embeds=input_embeds, attention_mask=attention_mask)
         model_output = model_output[0]
         return self.model.lm_head(model_output[:, 1:]) # remove cond
     
@@ -344,7 +344,7 @@ class ImageBert(BaseModel, PyTorchModelHubMixin, tags=["arxiv:2304.12244"], pipe
         return masked_tokens, masks
     
 
-class UViTBert(ImageBert):
+class UViTBertPadded(ImageBertPadded):
     def __init__(self, config):
         super().__init__(config=config)
 

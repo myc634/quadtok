@@ -1,4 +1,4 @@
-CONFIG="configs/training/generator/gpt_quadtree.yaml"
+CONFIG="configs/training/generator/maskgit_quadtree.yaml"
 echo "CONFIG: $CONFIG"
 
 

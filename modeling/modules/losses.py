@@ -811,6 +811,28 @@ class MLMLoss(torch.nn.Module):
         correct_tokens = ((torch.argmax(inputs, dim=1) == targets) * weights).sum(dim=1) / (weights.sum(1) + 1e-8)
         return loss, {"total_loss": loss, "correct_tokens": correct_tokens.mean()}
     
+class MLMLossPadded(torch.nn.Module):
+    def __init__(self,
+                 config):
+        super().__init__()
+        self.label_smoothing = config.losses.label_smoothing
+        self.loss_weight_unmasked_token = config.losses.loss_weight_unmasked_token
+        self.criterion = torch.nn.CrossEntropyLoss(label_smoothing=self.label_smoothing,
+                                                   reduction="none")
+    
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor,
+                weights=None) -> Tuple[torch.Tensor, Mapping[Text, torch.Tensor]]:
+        loss = self.criterion(inputs, targets)
+        if weights is not None:
+            weights = weights.to(loss)
+            loss_weights = (1.0 - weights) * self.loss_weight_unmasked_token + weights # set 0 to self.loss_weight_unasked_token
+            loss = (loss * loss_weights).sum() / (loss_weights.sum() + 1e-8)
+            # we only compute correct tokens on masked tokens
+            correct_tokens = ((torch.argmax(inputs, dim=1) == targets) * weights).sum(dim=1) / (weights.sum(1) + 1e-8)
+            return loss, {"total_loss": loss, "correct_tokens": correct_tokens.mean()}
+        else:
+            correct_tokens = (torch.argmax(inputs, dim=1) == targets).sum() / targets.size(0)
+            return loss.mean(), {"total_loss": loss.mean(), "correct_tokens": correct_tokens}
 
 class ARLoss(torch.nn.Module):
     def __init__(self, config):
