@@ -950,6 +950,7 @@ def train_one_epoch_generator(
                             f"LR: {lr:0.6f} "
                             f"Step: {global_step + 1} "
                             f"Loss: {loss_logs['train/total_loss']:0.4f} "
+                            f"Token Acc: {loss_logs['train/acc']:0.4f} "
                         )
                 logs = {
                     "lr": lr,
@@ -1212,6 +1213,10 @@ def cleanup_old_checkpoints(output_dir, keep_num=5, logger=None):
 def save_checkpoint(model, output_dir, accelerator, global_step, logger) -> Path:
     save_path = Path(output_dir) / f"checkpoint-{global_step}"
 
+    # Cleanup old checkpoints after saving (only on main process)
+    if accelerator.is_main_process:
+        cleanup_old_checkpoints(output_dir, keep_num=1, logger=logger)
+
     state_dict = accelerator.get_state_dict(model)
     if accelerator.is_main_process:
         unwrapped_model = accelerator.unwrap_model(model)
@@ -1224,10 +1229,6 @@ def save_checkpoint(model, output_dir, accelerator, global_step, logger) -> Path
         logger.info(f"Saved state to {save_path}")
 
     accelerator.save_state(save_path)
-    
-    # Cleanup old checkpoints after saving (only on main process)
-    if accelerator.is_main_process:
-        cleanup_old_checkpoints(output_dir, keep_num=2, logger=logger)
     
     return save_path
 

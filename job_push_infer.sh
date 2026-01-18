@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH -p efm_p
+#SBATCH -p si
 #SBATCH -N 1                    # 申请 1 个节点
-#SBATCH --gres=gpu:8            # 申请 8 张 GPU
+#SBATCH --gres=gpu:8            # 申请 6 张 GPU
 #SBATCH --ntasks-per-node=1     # 每个节点启 1 个任务 (即 1 个 accelerate 实例)
 #SBATCH --cpus-per-task=32      # CPU 核心数 (单机数据加载压力大，建议给足)
-#SBATCH -J base         # 任务名称
-#SBATCH -o logs/infer_%j.out # 日志输出
+#SBATCH -J infer         # 任务名称
+#SBATCH -o logs/inference_generator_%j.out # 日志输出
 
 source /mnt/petrelfs/jianglihan/miniforge3/bin/activate 1d
 
@@ -32,11 +32,10 @@ launcher="accelerate launch \
   --main_process_port=$MASTER_PORT \
   --mixed_precision=bf16 \
   scripts/inference_generator.py \
-  --config checkpoints/generator/mar_quadtree_fixtree/config.yaml \
+  --config configs/training/generator/gpt_quadtree.yaml \
   --num_samples 50000 \
-  --batch_size 32 \
-  --guidance_scale 1.0 \
-  --guidance_decay constant"
+  --batch_size 64 \
+  --checkpoint checkpoints/generator/gpt_quadtree_base_4096codebook/checkpoint-130000/ema_model/pytorch_model.bin"
 
 echo "Command to run:"
 echo "$launcher"

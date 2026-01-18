@@ -34,6 +34,13 @@ def mask_by_order(mask_len, order, bsz, seq_len):
     masking = torch.scatter(masking, dim=-1, index=order[:, :mask_len.long()], src=torch.ones(bsz, seq_len).cuda()).bool()
     return masking
 
+def calculate_entropy(logits):
+    probs = F.softmax(logits, dim=-1)
+    
+    log_probs = torch.log(probs + 1e-9)
+    entropy = -torch.sum(probs * log_probs, dim=-1)
+    return entropy.mean()
+
 
 class MAR(BaseModel):
     """ Masked Autoencoder with VisionTransformer backbone
@@ -1723,11 +1730,24 @@ class QuadtreeGPT(BaseModel):
         token_logits = self.output(z).float()
         total_loss = F.cross_entropy(token_logits[valid_mask].contiguous().float(), target_tokens[valid_mask].contiguous(), reduction="mean")
         loss_dict = {}
+
+        pred_tokens = torch.argmax(token_logits, dim=-1)
+        acc = (pred_tokens == target_tokens)[valid_mask].float().mean()
         # Combine losses
 
         loss_dict['total_loss'] = total_loss.mean().detach()
-        loss_dict['token_logits'] = token_logits.detach() 
+        loss_dict['token_logits'] = token_logits.detach()
+        loss_dict['acc'] = acc.detach()
         return total_loss, loss_dict
+
+    def cfg_lod_scheduler(self, cfg_scale_base, step, current_lod):
+        if current_lod <= 1:
+            return cfg_scale_base 
+        elif current_lod <= 3:
+            start_w, end_w = cfg_scale_base, 1.2
+            return max(end_w, start_w - (step - 21) * 0.02)
+        else:
+            return 1.1
 
     @torch.no_grad()
     def generate(self,
@@ -1779,6 +1799,10 @@ class QuadtreeGPT(BaseModel):
 
         # Step2: Prepare Position Embeddings and CFG
         token_indices_embedding = self.get_token_indices_embedding(tree_dict)
+        # permutation_indices = self.shuffle_tokens_within_lod(bsz, max_seq_len, tree_dict, device)
+        # batch_indices = torch.arange(bsz, device=device).unsqueeze(1).expand(-1, max_seq_len)
+
+        # token_indices_embedding = token_indices_embedding[batch_indices, permutation_indices]
 
         if guidance_scale > 1.0:
             cond_null = torch.ones_like(condition) * self.num_classes
@@ -1796,7 +1820,7 @@ class QuadtreeGPT(BaseModel):
         input_pos = torch.arange(0, x.shape[1], device=condition.device)
         cache_position = self.cls_token_num
 
-        for step in tqdm(range(max_seq_len)):
+        for step in range(max_seq_len):
 
             token_logitis = self.forward_inference(x, cur_freqs_cis, input_pos)
 
@@ -1805,12 +1829,27 @@ class QuadtreeGPT(BaseModel):
                     cfg_iter = 1 + (guidance_scale - 1) * (step) / max_seq_len
                 elif guidance_decay == "constant":
                     cfg_iter = guidance_scale
+                elif guidance_decay == "power-cosine":
+                    scale_pow = torch.ones((1), device=device) * guidance_scale_pow
+                    scale_step = (1 - torch.cos(((step / max_seq_len) ** scale_pow) * torch.pi)) * 1/2
+                    cfg_iter = (guidance_scale - 1) * scale_step + 1
+                elif guidance_decay == "lod_scheduler":
+                    cfg_iter = self.cfg_lod_scheduler(guidance_scale, step, lod_indices[:, step].float().mean())
+
             else:
                 cfg_iter = guidance_scale
             if not guidance_scale == 1.0:
                 cond_logits, uncond_logits = torch.chunk(token_logitis, 2, dim=0)
                 logits = uncond_logits + cfg_iter * (cond_logits - uncond_logits)
 
+                # std_c = cond_logits.std(dim=-1, keepdim=True)
+                # std_cfg = logits.std(dim=-1, keepdim=True)
+                # logits = logits * (std_c / std_cfg)
+            else:
+                logits = token_logitis
+            entropy = calculate_entropy(logits)
+            # breakpoint()
+            # print(f"Step {step}, LOD: {lod_indices[:, step].float().mean()}, entropy: {entropy}")
             incides = sample(logits, randomize_temperature)[0]
             result_tokens[:, step] = incides.clone().squeeze(1)
 
@@ -1829,5 +1868,9 @@ class QuadtreeGPT(BaseModel):
             input_pos = torch.arange(cache_position, cache_position + 1, device=condition.device)
             cache_position += 1
         self.remove_caches()
-        breakpoint()
+        # reverse_permutation = torch.argsort(permutation_indices, dim=1, stable=True)  # (original_bsz, max_seq_len)
+        
+        # batch_indices_reverse = torch.arange(condition.shape[0], device=device).unsqueeze(1).expand(-1, max_seq_len)
+        # result_tokens_original = result_tokens[batch_indices_reverse, reverse_permutation]
+        
         return result_tokens, tree_root

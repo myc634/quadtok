@@ -15,3 +15,4 @@ __pycache__/
 pretrained_weight/
 visualization/
 logs/
+extract_token_log/

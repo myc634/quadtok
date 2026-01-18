@@ -1,4 +1,4 @@
-srun --jobid=7086197 /bin/bash
+srun --jobid=7177246 /bin/bash
 source ~/.bashrc
 nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.total,memory.used,memory.free --format=csv -l 1 > /mnt/petrelfs/jianglihan/my_code/quadtok/gpu.log &
 
@@ -74,9 +74,11 @@ val_dataset = load_dataset("imagenet-1k",split="val",cache_dir="/mnt/cube/datase
 python scripts/eval_external_tokenizer.py --config configs/external_model/sdxl_vae.yaml
 
 python scripts/inference_generator.py \
-    --config checkpoints/generator/maskgit_quadtree_fixtree/config.yaml \
+    --config configs/training/generator/gpt_quadtree.yaml \
     --num_samples 1000 \
-    --batch_size 32
+    --batch_size 32 \
+    --checkpoint checkpoints/generator/gpt_quadtree_base_4096codebook/checkpoint-130000/ema_model/pytorch_model.bin 
+
 
 accelerate launch scripts/inference_generator.py \
     --config checkpoints/generator/mar_quadtree_base/config.yaml \
@@ -94,3 +96,5 @@ python scripts/extract_code_randomquadtree.py \
 
 
 rclone  copy --progress --transfers 200 --checkers 200 --links /mnt/petrelfs/jianglihan/my_code/tmp_imagenet_codes/debug/imagenet-train-000000.tar hoss:jianglihan/data/imagenet-debug
+
+python3 preview_images.py checkpoints/generator/gpt_quadtree_base_4096codebook/inference_output/class_fix_scale_5_pow_1.2_decay_sine-peak_temp_1.00_num_1000 2346

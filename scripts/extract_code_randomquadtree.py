@@ -84,7 +84,13 @@ def main(args):
     )
     
     # Use TarWriter to create tar file
-    output_tar_path = f"{args.output_tar_path}/imagenet-train-{args.shards_index:06d}.tar"
+    if args.crop_range == 1.1:
+        save_idx = args.shards_index
+    elif args.crop_range == 1.05:
+        save_idx = args.shards_index + 71
+    else:
+        raise ValueError(f"Invalid crop range: {args.crop_range}")
+    output_tar_path = f"{args.output_tar_path}/imagenet-train-{save_idx:06d}.tar"
     tar_writer = wds.TarWriter(output_tar_path)
     
     # Initialize trackers
@@ -114,6 +120,7 @@ def main(args):
         shards_path=shards_path,
         resize_shorter_edge=config.dataset.preprocessing.resize_shorter_edge,
         crop_size=config.dataset.preprocessing.crop_size,
+        crop_range=args.crop_range,
         random_crop=config.dataset.preprocessing.random_crop,
         random_flip=config.dataset.preprocessing.random_flip,
         num_workers_per_gpu=config.dataset.params.num_workers_per_gpu,
@@ -200,8 +207,8 @@ def main(args):
             tar_writer.write(sample)
             num_samples += 1
         # print(f"Saved {batch_idx} samples")
-        if batch_idx == 100:
-            break
+        # if batch_idx == 100:
+        #     break
     
     logger.info(f"Avg Token Number: {token_num / num_samples}")
     tar_writer.close()
@@ -220,7 +227,7 @@ if __name__ == "__main__":
     parser.add_argument("--expansion_probs", type=float, nargs='+', default=[0.3, 0.2], 
                         help="Expansion probabilities for random quadtree")
     parser.add_argument("--num_workers", type=int, default=2, help="Number of workers per GPU")
-    
+    parser.add_argument("--crop_range", type=float, default=1.1, help="Crop range for random crop")
     args = parser.parse_args()
     main(args)
 

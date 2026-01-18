@@ -1,9 +1,9 @@
 experiment:
     project: "dynamic_tokenizer_generation"
-    name: "gpt_quadtree_fixtree"
-    output_dir: "checkpoints/generator/debug"
-    # output_dir: "checkpoints/generator/gpt_quadtree_fixtree"
-    max_train_examples: 1_281_167
+    name: "gpt_quadtree_base_4096codebook"
+    # output_dir: "checkpoints/datacheck/debug"
+    output_dir: "checkpoints/generator/gpt_quadtree_base_4096codebook"
+    max_train_examples: 2_562_3340
     save_every: 10_000
     eval_every: 50_000
     generate_every: 1000
@@ -14,7 +14,7 @@ experiment:
 
 tokenizer:
     type: "quadtok"
-    tokenizer_ckpt_dir: "checkpoints/quadtok_sl256_vq_ts12-4096codebook-base/save-checkpoint-200000/ema_model/pytorch_model.bin"
+    tokenizer_ckpt_dir: "checkpoints/quadtok_sl256_vq_ts12-4096codebook-base/checkpoint-300000/ema_model/pytorch_model.bin"
     vae_embed_dim: 12 # keep the same with "token_size" in "vq_model"
 
 
@@ -51,6 +51,7 @@ model:
         guaranteed_depth: 3  # All nodes with lod <= 3 are guaranteed to exist
 
         class_num: 1000
+        condition_num_classes: 1000
 
         mask_ratio_min: 0.7
         buffer_size: 1
@@ -60,6 +61,12 @@ model:
         token_drop_prob: 0.1
         resid_drop_prob: 0.1
         ffn_drop_prob: 0.1
+
+        guidance_decay: "linear"
+        guidance_scale: 1.75
+        guidance_scale_pow: 1.5
+        randomize_temperature: 1.0
+        softmax_temperature_annealing: False
 
 
 losses:
@@ -72,8 +79,8 @@ losses:
 dataset:
     type: "pre_tokenized"
     params:
-        shards_path: "pipe:rclone cat hoss:jianglihan/data/imagenet-debug/imagenet-train-{000000..000010}.tar"
-        num_workers_per_gpu: 12
+        shards_path: "pipe:rclone cat hoss:jianglihan/data/imagenet-pretokenized/vq-ts12-4096codebook-base/imagenet-train-{000000..000140}.tar"
+        num_workers_per_gpu: 2
      # unused in pre_tokenized dataset
     preprocessing:
         resize_shorter_edge: 256
@@ -101,7 +108,7 @@ lr_scheduler:
 
 training:
     gradient_accumulation_steps: 1
-    per_gpu_batch_size: 64 # 8 GPU, total batch size 1024
+    per_gpu_batch_size: 32 # 16 GPU, total batch size 1024
     mixed_precision: "bf16"
     enable_tf32: True
     enable_wandb: True
