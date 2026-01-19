@@ -1,9 +1,9 @@
 experiment:
     project: "dynamic_tokenizer"
-    name: "quadtok_sl256_vq_ts12-4kcodebook-base"
+    name: "quadtok_sl256_vq_ts12-4kcodebook-lod3"
     output_dir: "checkpoints/quadtok_sl256_vq_ts12-4kcodebook-lod3"
     max_train_examples: 685_800_000
-    save_every: 50_000
+    save_every: 25_000
     eval_every: 50_000
     generate_every: 500
     log_every: 50
@@ -32,8 +32,8 @@ model:
       token_size: 12
     selector:
       token_size: 12
-      num_patch_side_list: [8, 16, 32]
-      patch_size_list: [16, 16, 8]
+      num_patch_side_list: [1, 2, 4, 8, 16, 32]
+      patch_size_list: [16, 16, 16, 16, 16, 8]
 
 
 losses:
@@ -78,7 +78,7 @@ lr_scheduler:
 
 training:
     gradient_accumulation_steps: 1
-    per_gpu_batch_size: 64
+    per_gpu_batch_size: 32
     mixed_precision: "bf16"
     enable_tf32: True
     enable_wandb: True

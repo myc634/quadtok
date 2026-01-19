@@ -846,7 +846,8 @@ class QuadTokDecoder(nn.Module):
         for lod_idx, num_patches in enumerate(self.num_patch_side_list):
             total_patches = num_patches ** 2
             self.max_seq_len += total_patches
-            self.token_incides_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.width)
+            if lod_idx >= 3:
+                self.token_incides_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.width)
 
         scale = self.width ** -0.5
         self.latent_token_positional_embedding = nn.Parameter(
@@ -865,35 +866,33 @@ class QuadTokDecoder(nn.Module):
 
         self.latent_unpatchers = nn.ModuleDict()
         for i in range(self.num_lod):
-            patch_size = self.patch_size_list[i]
-            out_channels = self.decoder_channels[i]
-            self.latent_unpatchers[str(i)] = nn.Sequential(
-                nn.Linear(self.width, out_channels * patch_size * patch_size),
-                Rearrange('b (c p1 p2) -> b c p1 p2', p1=patch_size, p2=patch_size)
-            )
+            if i >= 3:
+                patch_size = self.patch_size_list[i]
+                out_channels = self.decoder_channels[i]
+                self.latent_unpatchers[str(i)] = nn.Sequential(
+                    nn.Linear(self.width, out_channels * patch_size * patch_size),
+                    Rearrange('b (c p1 p2) -> b c p1 p2', p1=patch_size, p2=patch_size)
+                )
 
-        self.upsamplers = nn.ModuleList()
+        self.upsamplers = nn.ModuleDict()
         for i in range(self.num_lod - 1):
-            if i < 4:
-                in_channels = self.decoder_channels[i]
-                out_channels = self.decoder_channels[i+1]
-                self.upsamplers.append(
-                    nn.Sequential(#nn.RMSNorm(in_channels),
-                    nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1),
-                    nn.GroupNorm(num_groups=32, num_channels=in_channels),
-                    nn.GELU(),
-                    nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2))
-                )
-            else:
-                in_channels = self.decoder_channels[i]
-                out_channels = self.decoder_channels[i+1]
-                self.upsamplers.append(
-                    nn.Sequential(#nn.RMSNorm(in_channels),
-                    nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1),
-                    nn.GroupNorm(num_groups=32, num_channels=in_channels),
-                    nn.GELU(),
-                    nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1))
-                )
+            if i >= 3:
+                if i < 4:
+                    in_channels = self.decoder_channels[i]
+                    out_channels = self.decoder_channels[i+1]
+                    self.upsamplers[str(i)] = nn.Sequential(#
+                        nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1),
+                        nn.GroupNorm(num_groups=32, num_channels=in_channels),
+                        nn.GELU(),
+                        nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2))
+                else:
+                    in_channels = self.decoder_channels[i]
+                    out_channels = self.decoder_channels[i+1]
+                    self.upsamplers[str(i)] = nn.Sequential(#
+                        nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1),
+                        nn.GroupNorm(num_groups=32, num_channels=in_channels),
+                        nn.GELU(),
+                        nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1))
 
         self.conv_out = nn.Conv2d(self.decoder_channels[-1], 3, 3, padding=1, bias=True)
 
@@ -932,41 +931,43 @@ class QuadTokDecoder(nn.Module):
         flat_token_sequence = torch.cat(lod_embeddings, dim=0)
         return flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
 
-    def hierarchical_latent_decode(self, tree_structure, batch_size):
+    def hierarchical_latent_decode(self, ordered_nodes, batch_size):
         device = self.latent_token_positional_embedding.device
         dtype = self.latent_token_positional_embedding.dtype
-        ordered_nodes = self._get_ordered_nodes(tree_structure)
+        # ordered_nodes = self._get_ordered_nodes(tree_structure)
         nodes_by_lod = {i: [] for i in range(self.num_lod)}
         for node in ordered_nodes:
             nodes_by_lod[node.lod_level].append(node)
 
         previous_feature_map = None
         for lod_idx in range(self.num_lod):
-            channels = self.decoder_channels[lod_idx]
-            patch_size = self.patch_size_list[lod_idx]
-            if lod_idx == 0:
-                upsampled_map = torch.zeros(batch_size, channels, patch_size, patch_size, device=device, dtype=dtype)
-            else:
-                upsampler = self.upsamplers[lod_idx - 1]
-                upsampled_map = upsampler(previous_feature_map)
+            if lod_idx >= 3:
+                channels = self.decoder_channels[lod_idx]
+                patch_size = self.patch_size_list[lod_idx]
+                num_patches_per_side = self.num_patch_side_list[lod_idx]
+                if lod_idx == 3:
+                    upsampled_map = torch.zeros(batch_size, channels, patch_size * num_patches_per_side, patch_size * num_patches_per_side, device=device, dtype=dtype)
+                else:
+                    upsampler = self.upsamplers[str(lod_idx - 1)]
+                    upsampled_map = upsampler(previous_feature_map)
 
-            current_lod_patch_canvas = torch.zeros(batch_size, channels, upsampled_map.shape[-2], upsampled_map.shape[-1], device=device, dtype=dtype)
-            nodes_in_lod = nodes_by_lod[lod_idx]
-            if nodes_in_lod:
-                unpatch_fn = self.latent_unpatchers[str(lod_idx)]
-                for node in nodes_in_lod:
-                    latent_patch = unpatch_fn(node.node_feature)
-                    
-                    num_patches_per_side = self.num_patch_side_list[lod_idx]
-                    row, col = divmod(node.patch_index, num_patches_per_side)
-                    
-                    y_start, x_start = row * patch_size, col * patch_size
-                    y_end, x_end = y_start + patch_size, x_start + patch_size
+                current_lod_patch_canvas = torch.zeros(batch_size, channels, upsampled_map.shape[-2], upsampled_map.shape[-1], device=device, dtype=dtype)
+                nodes_in_lod = nodes_by_lod[lod_idx]
+                if nodes_in_lod:
+                    unpatch_fn = self.latent_unpatchers[str(lod_idx)]
+                    for node in nodes_in_lod:
+                        latent_patch = unpatch_fn(node.node_feature)
+                        
+                        
+                        row, col = divmod(node.patch_index, num_patches_per_side)
+                        
+                        y_start, x_start = row * patch_size, col * patch_size
+                        y_end, x_end = y_start + patch_size, x_start + patch_size
 
-                    current_lod_patch_canvas[:, :, y_start:y_end, x_start:x_end] = latent_patch
+                        current_lod_patch_canvas[:, :, y_start:y_end, x_start:x_end] = latent_patch
 
-            final_lod_feature_map = upsampled_map + current_lod_patch_canvas
-            previous_feature_map = final_lod_feature_map
+                final_lod_feature_map = upsampled_map + current_lod_patch_canvas
+                previous_feature_map = final_lod_feature_map
             
         return previous_feature_map
 
@@ -1211,17 +1212,17 @@ class QuadTokDecoder(nn.Module):
     def update_features_in_tree(
         self,
         updated_features,
-        tree_structure
+        ordered_nodes
     ):
-        ordered_nodes = self._get_ordered_nodes(tree_structure)
+        # ordered_nodes = self._get_ordered_nodes(tree_structure)
         for i, node in enumerate(ordered_nodes):
             feature_slice = updated_features[:, i, :]
             node.node_feature = feature_slice
 
-    def _forward_reconstruction(self, z_quantized, tree_structure):
+    def _forward_reconstruction(self, z_quantized, ordered_nodes):
         batch_size, seq_len, _ = z_quantized.shape
         z_quantized = self.decoder_embed(z_quantized)
-        ordered_nodes = self._get_ordered_nodes(tree_structure)
+        # ordered_nodes = self._get_ordered_nodes(tree_structure)
 
         lod_embeddings = []
         for node in ordered_nodes:
@@ -1243,9 +1244,9 @@ class QuadTokDecoder(nn.Module):
         x = x.permute(1, 0, 2)  # LND -> NLD
         x = self.ln_post(x)
         # x = self.attn_out(x)
-        self.update_features_in_tree(x, tree_structure)
+        self.update_features_in_tree(x, ordered_nodes)
 
-        upsampled_latent = self.hierarchical_latent_decode(tree_structure, batch_size)
+        upsampled_latent = self.hierarchical_latent_decode(ordered_nodes, batch_size)
 
         reconstructd_image = self.conv_out(upsampled_latent)
         return reconstructd_image
@@ -1439,7 +1440,8 @@ class QuadTokSelctor(nn.Module):
         for lod_idx, num_patches in enumerate(self.num_patch_side_list):
             total_patches = num_patches ** 2
             self.max_seq_len += total_patches
-            self.token_incides_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.width)
+            if lod_idx >= 3:
+                self.token_incides_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.width)
 
         scale = self.width ** -0.5
         self.latent_token_positional_embedding = nn.Parameter(
@@ -1491,9 +1493,9 @@ class QuadTokSelctor(nn.Module):
         # (B, num_total_nodes, D)
         return flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
 
-    def _forward_reconstruction(self, latent_feats, tree_structure):
+    def _forward_reconstruction(self, latent_feats, ordered_nodes):
         batch_size = latent_feats.shape[0]
-        ordered_nodes = self._get_ordered_nodes(tree_structure)
+        # ordered_nodes = self._get_ordered_nodes(tree_structure)
 
         lod_embeddings = []
         for node in ordered_nodes:

@@ -103,14 +103,38 @@ class QuadTok(BaseModel):
         decoded = self.decoder(z_quantized, tree_structure)
         return decoded
 
+    def _get_ordered_nodes(self, root_node):
+        if not root_node:
+            return []
+        nodes_by_lod = {i: [] for i in range(self.num_lod)}
+        queue = [root_node]
+        
+        while queue:
+            node = queue.pop(0)
+            if node.lod_level < self.num_lod:
+                nodes_by_lod[node.lod_level].append(node)
+            for child in node.children:
+                queue.append(child)
+        
+        ordered_nodes = []
+        for i in range(self.num_lod):
+            ordered_nodes.extend(nodes_by_lod[i])
+            
+        return ordered_nodes
+
     def _forward_reconstruction(self, x):
         latent_feats = self.encode(x)
         # guaranteed_depth=1, expansion_probs=[0.8, 0.7, 0.6, 0.5] guaranteed_depth=2, expansion_probs=[0.7, 0.6, 0.5]
         tree_structure = build_probabilistic_quadtree(self.num_patch_side_list, guaranteed_depth=3, expansion_probs=[0.3, 0.2])
+        ori_ordered_nodes = self._get_ordered_nodes(tree_structure)
+        ordered_nodes = []
+        for node in ori_ordered_nodes:
+            if node.lod_level >= 3:
+                ordered_nodes.append(node)
         if self.repa_param is not None: # 
-            z, zs = self.selector(latent_feats, tree_structure)
+            z, zs = self.selector(latent_feats, ordered_nodes)
         else:
-            z = self.selector(latent_feats, tree_structure)
+            z = self.selector(latent_feats, ordered_nodes)
             zs = None
 
         if self.quantize_mode == "vq":
@@ -120,7 +144,7 @@ class QuadTok(BaseModel):
             posteriors = self.quantize(z)
             z_quantized = posteriors.sample()
             result_dict["posteriors"] = posteriors
-        decoded = self.decode(z_quantized.permute(0, 3, 2, 1).squeeze(2).contiguous(), tree_structure)
+        decoded = self.decode(z_quantized.permute(0, 3, 2, 1).squeeze(2).contiguous(), ordered_nodes)
         
         return decoded, result_dict
 
