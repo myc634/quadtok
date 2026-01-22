@@ -750,7 +750,7 @@ def train_one_epoch_generator(
     batch_time_meter = AverageMeter()
     data_time_meter = AverageMeter()
     end = time.time()
-
+    sample_index = 0
     model.train()
 
     for i, batch in enumerate(train_dataloader):
@@ -859,12 +859,31 @@ def train_one_epoch_generator(
                     input_tokens = target_tokens[:, :-1].clone()
          
         elif "code_indices" in batch:
+            def get_ordered_nodes_from_indices(lod_indices, patch_indices):
+                """Create ordered nodes list matching the order of saved indices."""
+                ordered_nodes = []
+                for lod_idx, patch_idx in zip(lod_indices, patch_indices):
+                    node = QuadTreeNode(lod_level=int(lod_idx), patch_index=int(patch_idx))
+                    ordered_nodes.append(node)
+                return ordered_nodes
             # use batch 0 for debugging:
             target_tokens = batch["code_indices"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True)
             input_tokens = target_tokens[:, :-1] # remove the last token
 
             conditions = batch["class_id"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True)
             tree_dict = dict(lod_indices=batch["lod_indices"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True), patch_indices=batch["patch_indices"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True))
+            # generated_images = []
+            # import torchvision
+            # for i in range(target_tokens.shape[0]):
+            #     sample_index += 1
+            #     ordered_nodes = get_ordered_nodes_from_indices(tree_dict['lod_indices'][i][target_tokens[i] != -1], tree_dict['patch_indices'][i][target_tokens[i] != -1])
+            #     generated_tokens = tokenizer.quantize.get_codebook_entry(target_tokens[i][target_tokens[i] != -1].long())
+            #     generated_image = tokenizer.decoder._forward_reconstruction(generated_tokens.unsqueeze(0), ordered_nodes)
+            #     generated_image = torch.clamp(generated_image, 0.0, 1.0)
+            #     torchvision.utils.save_image(generated_image, f"debug_imgs/{accelerator.process_index:02d}_{sample_index:06d}.png")
+            # breakpoint()
+            
+
         else:
             raise ValueError(f"Not found valid keys: {batch.keys()}")
         data_time_meter.update(time.time() - end)

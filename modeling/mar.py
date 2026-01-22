@@ -1554,6 +1554,25 @@ class QuadtreeGPT(BaseModel):
                 module.bias.data.zero_()
         elif isinstance(module, nn.Embedding):
             module.weight.data.normal_(mean=0.0, std=std)
+
+    def _get_ordered_nodes(self, root_node):
+        if not root_node:
+            return []
+        nodes_by_lod = {i: [] for i in range(self.num_lod)}
+        queue = [root_node]
+        
+        while queue:
+            node = queue.pop(0)
+            if node.lod_level < self.num_lod:
+                nodes_by_lod[node.lod_level].append(node)
+            for child in node.children:
+                queue.append(child)
+        
+        ordered_nodes = []
+        for i in range(self.num_lod):
+            ordered_nodes.extend(nodes_by_lod[i])
+            
+        return ordered_nodes
     
 
     def setup_caches(self, max_batch_size, max_seq_length, dtype):
@@ -1704,7 +1723,6 @@ class QuadtreeGPT(BaseModel):
         """
         bs, max_seq_len = target_tokens.shape
         device = target_tokens.device
-        
         # get valid mask
         input_tokens, valid_mask = self.input_preprocess(input_tokens, target_tokens, tree_dict)
 
@@ -1786,9 +1804,10 @@ class QuadtreeGPT(BaseModel):
         final_tree = tree_to_decision_nodes_dict(tree_root, self.num_lod)
         lod_indices, patch_incides = [], []
         for lod_idx, nodes in final_tree.items():
-            for node in nodes:
-                lod_indices.append(node.lod_level)
-                patch_incides.append(node.patch_index)
+            if lod_idx >= 3:
+                for node in nodes:
+                    lod_indices.append(node.lod_level)
+                    patch_incides.append(node.patch_index)
 
         lod_indices = torch.tensor(lod_indices, device=device, dtype=torch.long).unsqueeze(0).expand(bsz, -1)
         patch_incides = torch.tensor(patch_incides, device=device, dtype=torch.long).unsqueeze(0).expand(bsz, -1)
@@ -1872,5 +1891,11 @@ class QuadtreeGPT(BaseModel):
         
         # batch_indices_reverse = torch.arange(condition.shape[0], device=device).unsqueeze(1).expand(-1, max_seq_len)
         # result_tokens_original = result_tokens[batch_indices_reverse, reverse_permutation]
+
+        ori_ordered_nodes = self._get_ordered_nodes(tree_root)
+        ordered_nodes = []
+        for node in ori_ordered_nodes:
+            if node.lod_level >= 3:
+                ordered_nodes.append(node)
         
-        return result_tokens, tree_root
+        return result_tokens, ordered_nodes

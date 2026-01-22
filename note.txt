@@ -1,4 +1,4 @@
-srun --jobid=7177246 /bin/bash
+srun --jobid=7220259 /bin/bash
 source ~/.bashrc
 nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.total,memory.used,memory.free --format=csv -l 1 > /mnt/petrelfs/jianglihan/my_code/quadtok/gpu.log &
 
@@ -88,10 +88,10 @@ accelerate launch scripts/inference_generator.py \
     --guidance_decay constant
 
 python scripts/extract_code_randomquadtree.py \
-    --config_dir checkpoints/quadtok_sl256_vq_ts12-4096codebook-base/config.yaml \
+    --config_dir checkpoints/quadtok_sl256_vq_ts12-4kcodebook-lod3/config.yaml \
     --output_dir extract_token_log \
     --shards_index 0 \
-    --tokenizer_weight checkpoints/quadtok_sl256_vq_ts12-4096codebook-base/checkpoint-200000-save/ema_model/pytorch_model.bin \
+    --tokenizer_weight checkpoints/quadtok_sl256_vq_ts12-4kcodebook-lod3/checkpoint-350000/ema_model/pytorch_model.bin \
     --output_tar_path /mnt/petrelfs/jianglihan/my_code/tmp_imagenet_codes/debug
 
 

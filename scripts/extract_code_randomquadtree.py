@@ -173,8 +173,13 @@ def main(args):
         for aug_idx in range(num_aug):
             batch_image_latent = image_latent[aug_idx].unsqueeze(0)
             batch_tree = root_list[aug_idx]
+            ori_ordered_nodes = model._get_ordered_nodes(batch_tree)
+            ordered_nodes = []
+            for node in ori_ordered_nodes:
+                if node.lod_level >= 3:
+                    ordered_nodes.append(node)
             # Get tokens using the random quadtrees
-            z_batch = model.selector._forward_reconstruction(batch_image_latent, batch_tree)
+            z_batch = model.selector._forward_reconstruction(batch_image_latent, ordered_nodes)
 
             _, result_dict = model.quantize(z_batch)
             code_incides = result_dict['min_encoding_indices'].squeeze()
@@ -188,9 +193,10 @@ def main(args):
             lod_indices, patch_incides = [], []
 
             for lod_idx, nodes in final_tree.items():
-                for node in nodes:
-                    lod_indices.append(node.lod_level)
-                    patch_incides.append(node.patch_index)
+                if lod_idx >= 3:
+                    for node in nodes:
+                        lod_indices.append(node.lod_level)
+                        patch_incides.append(node.patch_index)
             
             if batch_size > 1:
                 class_id_data = class_id[i].item()

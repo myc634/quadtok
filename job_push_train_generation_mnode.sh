@@ -5,14 +5,14 @@
 #SBATCH --ntasks-per-node=1     # 每个节点启 1 个 accelerate 实例
 #SBATCH --cpus-per-task=16      # CPU核心数 (建议设大一点，例如 16 或 32 以防数据加载卡顿)
 #SBATCH -J base         # 任务名
-#SBATCH -o logs/gpt_quadtree_base_4096codebook_%j.out  # 日志输出 (确保 logs 文件夹存在)
+#SBATCH -o logs/debug_vis_%j.out  # 日志输出 (确保 logs 文件夹存在)
 
 # ===========================
 # 1. 环境配置 (替换为你现在的环境)
 # ===========================
 source /mnt/petrelfs/jianglihan/miniforge3/bin/activate 1d
 
-cd /mnt/petrelfs/jianglihan/my_code/quadtok
+cd /mnt/petrelfs/jianglihan/my_code/quadtok2
 
 # 设置 CUDA 库路径
 export LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:$LD_LIBRARY_PATH

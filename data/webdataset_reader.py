@@ -325,10 +325,7 @@ class PretokenizedDataset:
             }
 
         pipeline = [
-            wds.SimpleShardList(shards_path),
-            wds.shuffle(200),
-            wds.split_by_node,
-            wds.split_by_worker,
+            wds.ResampledShards(shards_path),
             wds.tarfile_to_samples(handler=wds.warn_and_continue),
             wds.shuffle(bufsize=10000,initial=1000),
             wds.decode(wds.autodecode.basichandlers, handler=wds.warn_and_continue),
