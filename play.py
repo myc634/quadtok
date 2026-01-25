@@ -274,9 +274,9 @@ if __name__ == "__main__":
     # --- 1. 定义模拟参数 ---
     # 为了更快看到结果，可以先用 1,000,000 (一百万) 跑一下
     N_RUNS = 10_000_0 
-    PATCHES_PER_SIDE = [1, 2, 4, 8, 16, 32]
+    PATCHES_PER_SIDE = [1, 2, 4, 8, 16]
     GUARANTEED_DEPTH = 3
-    TUNED_PROBS = [0.25, 0.2]
+    TUNED_PROBS = [0.75]
     
     MAX_LOD = len(PATCHES_PER_SIDE) - 1
     

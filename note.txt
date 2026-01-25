@@ -1,4 +1,4 @@
-srun --jobid=7220259 /bin/bash
+srun --jobid=7234798 /bin/bash
 source ~/.bashrc
 nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.total,memory.used,memory.free --format=csv -l 1 > /mnt/petrelfs/jianglihan/my_code/quadtok/gpu.log &
 

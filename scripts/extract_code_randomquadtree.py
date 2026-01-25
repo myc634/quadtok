@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 import argparse
 from collections import defaultdict
+import random
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 sys.path.append(parent_dir)
@@ -83,15 +84,7 @@ def main(args):
         output_file=f"{output_dir}/log{accelerator.process_index}.txt"
     )
     
-    # Use TarWriter to create tar file
-    if args.crop_range == 1.1:
-        save_idx = args.shards_index
-    elif args.crop_range == 1.05:
-        save_idx = args.shards_index + 71
-    else:
-        raise ValueError(f"Invalid crop range: {args.crop_range}")
-    output_tar_path = f"{args.output_tar_path}/imagenet-train-{save_idx:06d}.tar"
-    tar_writer = wds.TarWriter(output_tar_path)
+
     
     # Initialize trackers
     if accelerator.is_main_process:
@@ -142,6 +135,7 @@ def main(args):
     num_samples = 0
     
     logger.info("Starting to process samples...")
+    all_sample_list = []
     # with wds.TarWriter(process.stdin) as tar_writer:
     for batch_idx, batch in tqdm(enumerate(custom_dataloader), desc="Processing samples"):
 
@@ -202,7 +196,7 @@ def main(args):
                 class_id_data = class_id[i].item()
             else:
                 class_id_data = class_id.item() if hasattr(class_id, 'item') else int(class_id)
-            
+            assert code_incides.shape[0] == len(lod_indices) == len(patch_incides)
             sample = {
                 "__key__": base_filename,
                 "code_indices.npy": code_incides.cpu().numpy(),
@@ -210,12 +204,28 @@ def main(args):
                 "patch_indices.npy": np.array(patch_incides),
                 "cls": str(class_id_data)
             }
-            tar_writer.write(sample)
+            all_sample_list.append(sample)
+
             num_samples += 1
         # print(f"Saved {batch_idx} samples")
         # if batch_idx == 100:
         #     break
+    random.shuffle(all_sample_list)
+    # Use TarWriter to create tar file
+    if args.crop_range == 1.1:
+        save_idx = args.shards_index
+    elif args.crop_range == 1.05:
+        save_idx = args.shards_index + 71
+    else:
+        raise ValueError(f"Invalid crop range: {args.crop_range}")
+    output_tar_path = f"{args.output_tar_path}/imagenet-train-{save_idx:06d}.tar"
+    tar_writer = wds.TarWriter(output_tar_path)
+
+    with wds.TarWriter(output_tar_file) as tar_writer:
+        for s in tqdm(all_sample_list, desc="Saving to Tar"):
+            tar_writer.write(s)
     
+    all_sample_list.clear()
     logger.info(f"Avg Token Number: {token_num / num_samples}")
     tar_writer.close()
     logger.info(f"Total samples processed and saved: {num_samples}")

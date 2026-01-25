@@ -1746,12 +1746,24 @@ class QuadtreeGPT(BaseModel):
 
         z = self.out_norm(z)
         token_logits = self.output(z).float()
-        total_loss = F.cross_entropy(token_logits[valid_mask].contiguous().float(), target_tokens[valid_mask].contiguous(), reduction="mean")
+
+        weights = torch.ones_like(target_tokens) * -1.0
+
+        weights[tree_dict['lod_indices'] == 3] = 1.0
+        weights[tree_dict['lod_indices'] == 4] = 0.05
+        weights[tree_dict['lod_indices'] == 5] = 0.05
+
+        total_loss = F.cross_entropy(token_logits[valid_mask].contiguous().float(), target_tokens[valid_mask].contiguous(), reduction="none")
+        total_loss = (total_loss * weights[valid_mask].contiguous().float()).mean()
+
         loss_dict = {}
 
         pred_tokens = torch.argmax(token_logits, dim=-1)
         acc = (pred_tokens == target_tokens)[valid_mask].float().mean()
         # Combine losses
+        loss_dict['lod_3_loss'] = F.cross_entropy(token_logits[tree_dict['lod_indices']==3].contiguous().float(), target_tokens[tree_dict['lod_indices']==3].contiguous(), reduction="mean")
+        loss_dict['lod_4_loss'] = F.cross_entropy(token_logits[tree_dict['lod_indices']==4].contiguous().float(), target_tokens[tree_dict['lod_indices']==4].contiguous(), reduction="mean")
+        loss_dict['lod_5_loss'] = F.cross_entropy(token_logits[tree_dict['lod_indices']==5].contiguous().float(), target_tokens[tree_dict['lod_indices']==5].contiguous(), reduction="mean")  
 
         loss_dict['total_loss'] = total_loss.mean().detach()
         loss_dict['token_logits'] = token_logits.detach()

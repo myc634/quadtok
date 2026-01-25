@@ -24,6 +24,9 @@ import pprint
 import glob
 from collections import defaultdict
 import pickle
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
 from data import SimpleImageDataset, PretokenizedDataset
 import torch
 import torch.nn.functional as F
@@ -473,6 +476,8 @@ def train_one_epoch(config, logger, accelerator,
 
     autoencoder_logs = defaultdict(float)
     discriminator_logs = defaultdict(float)
+    # Statistics for unique tokens per LOD
+    lod_unique_tokens = defaultdict(set)  # {lod_level: set of unique tokens}
     for i, batch in enumerate(train_dataloader):
         model.train()
         additional_args = {}
@@ -750,9 +755,9 @@ def train_one_epoch_generator(
     batch_time_meter = AverageMeter()
     data_time_meter = AverageMeter()
     end = time.time()
-    sample_index = 0
+    total_samples = 0
     model.train()
-
+    lod_unique_tokens = defaultdict(list)
     for i, batch in enumerate(train_dataloader):
         model.train()
         if "image" in batch:
@@ -872,15 +877,63 @@ def train_one_epoch_generator(
 
             conditions = batch["class_id"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True)
             tree_dict = dict(lod_indices=batch["lod_indices"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True), patch_indices=batch["patch_indices"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True))
+            
+            # # # Hack: Statistics for unique tokens per LOD (vectorized for speed)
+            # lod_indices_tensor = tree_dict['lod_indices']  # (batch_size, seq_len)
+            # # Flatten and filter out padding (-1)
+            # valid_mask = target_tokens != -1  # (batch_size, seq_len)
+            
+            # # # Vectorized processing: flatten all valid tokens and LODs
+            # valid_tokens_flat = target_tokens[valid_mask]  # (num_valid_tokens,)
+            # valid_lods_flat = lod_indices_tensor[valid_mask]  # (num_valid_tokens,)
+            # total_samples += target_tokens.shape[0]
+            
+            # # Group by LOD and get unique tokens for each LOD using vectorized operations
+            # unique_lods = torch.unique(valid_lods_flat)
+            # for lod in unique_lods.cpu().tolist():
+            #     lod_mask = valid_lods_flat == lod
+            #     lod_tokens = valid_tokens_flat[lod_mask]
+            #     unique_tokens = torch.unique(lod_tokens)
+            #     lod_unique_tokens[int(lod)].append(unique_tokens.cpu().tolist())
+            #     # len(set(lod_unique_tokens[0][0]))
+            # if total_samples > 10000:
+            #     breakpoint()
+           # unique_labels, counts = torch.unique(conditions, return_counts=True)
+            # for label, count in zip(unique_labels.tolist(), counts.tolist()):
+            #     class_label_counts[int(label)] += count
+            # total_samples += len(conditions)
+            
+            # Hack: Plot and save histogram when reaching certain sample count
+            # if total_samples > 10000:
+            #     # Prepare data for plotting
+            #     labels = sorted(class_label_counts.keys())
+            #     counts_list = [class_label_counts[label] for label in labels]
+                
+            #     # Create histogram
+            #     plt.figure(figsize=(12, 6))
+            #     plt.bar(labels, counts_list, width=0.8, alpha=0.7)
+            #     plt.xlabel('Class Label', fontsize=12)
+            #     plt.ylabel('Count', fontsize=12)
+            #     plt.title(f'Class Label Distribution (Total Samples: {total_samples})', fontsize=14)
+            #     plt.grid(axis='y', alpha=0.3)
+            #     plt.tight_layout()
+                
+            #     # Save to PNG
+            #     output_dir = Path(config.experiment.output_dir)
+            #     histogram_path = output_dir / f"class_label_distribution_samples_{total_samples}.png"
+            #     plt.savefig(histogram_path, dpi=150, bbox_inches='tight')
+            #     plt.close()
+            #     logger.info(f"Saved class label distribution histogram to {histogram_path}")
+            #     breakpoint()
             # generated_images = []
             # import torchvision
             # for i in range(target_tokens.shape[0]):
-            #     sample_index += 1
+            #     total_samples += 1
             #     ordered_nodes = get_ordered_nodes_from_indices(tree_dict['lod_indices'][i][target_tokens[i] != -1], tree_dict['patch_indices'][i][target_tokens[i] != -1])
             #     generated_tokens = tokenizer.quantize.get_codebook_entry(target_tokens[i][target_tokens[i] != -1].long())
             #     generated_image = tokenizer.decoder._forward_reconstruction(generated_tokens.unsqueeze(0), ordered_nodes)
             #     generated_image = torch.clamp(generated_image, 0.0, 1.0)
-            #     torchvision.utils.save_image(generated_image, f"debug_imgs/{accelerator.process_index:02d}_{sample_index:06d}.png")
+            #     torchvision.utils.save_image(generated_image, f"debug_imgs/{accelerator.process_index:02d}_{total_samples:06d}.png")
             # breakpoint()
             
 
@@ -969,6 +1022,9 @@ def train_one_epoch_generator(
                             f"LR: {lr:0.6f} "
                             f"Step: {global_step + 1} "
                             f"Loss: {loss_logs['train/total_loss']:0.4f} "
+                            f"LOD 3 Loss: {loss_logs['train/lod_3_loss']:0.4f} "
+                            f"LOD 4 Loss: {loss_logs['train/lod_4_loss']:0.4f} "
+                            f"LOD 5 Loss: {loss_logs['train/lod_5_loss']:0.4f} "
                             f"Token Acc: {loss_logs['train/acc']:0.4f} "
                         )
                 logs = {

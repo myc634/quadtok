@@ -9,7 +9,7 @@
 
 source /mnt/petrelfs/jianglihan/miniforge3/bin/activate eval-gen
 
-cd /mnt/petrelfs/jianglihan/my_code/quadtok
+cd /mnt/petrelfs/jianglihan/my_code/quadtok2
 
 # 设置环境变量
 export LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:$LD_LIBRARY_PATH
@@ -21,7 +21,7 @@ echo "Evaluating FID metrics on inference output..."
 launcher="python scripts/eval_imagenet_fid.py \
   --output_dir /mnt/petrelfs/jianglihan/my_code/quadtok2/debug_imgs \
   --skip_processing \
-  --num_samples 50000"
+  --num_samples 100000"
 
 echo "Command to run:"
 echo "$launcher"

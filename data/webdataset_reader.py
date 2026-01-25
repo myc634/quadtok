@@ -326,8 +326,10 @@ class PretokenizedDataset:
 
         pipeline = [
             wds.ResampledShards(shards_path),
+            wds.split_by_node,
+            wds.split_by_worker,
             wds.tarfile_to_samples(handler=wds.warn_and_continue),
-            wds.shuffle(bufsize=10000,initial=1000),
+            wds.shuffle(bufsize=50000,initial=50000),
             wds.decode(wds.autodecode.basichandlers, handler=wds.warn_and_continue),
             wds.rename(code_indices="code_indices.npy", lod_indices="lod_indices.npy", patch_indices="patch_indices.npy", class_id="cls", handler=wds.warn_and_continue),
             wds.map_dict(

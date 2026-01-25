@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -p si
-#SBATCH -N 2                   # 申请节点数 
+#SBATCH -N 4                   # 申请节点数 
 #SBATCH --gres=gpu:8            # 每个节点 8 卡
 #SBATCH --ntasks-per-node=1     # 每个节点启 1 个 accelerate 实例
 #SBATCH --cpus-per-task=16      # CPU核心数 (建议设大一点，例如 16 或 32 以防数据加载卡顿)

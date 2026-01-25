@@ -47,7 +47,11 @@ def create_npz_from_sample_folder(sample_dir, num=50_000):
     actual_num = len(png_files)
     samples = []
     for png_file in tqdm(png_files, desc="Building .npz file from samples"):
-        sample_pil = Image.open(png_file)
+        try:
+            sample_pil = Image.open(png_file)
+        except Exception as e:
+            print(f"Error opening {png_file}: {e}")
+            continue
         sample_np = np.asarray(sample_pil).astype(np.uint8)
         samples.append(sample_np)
     samples = np.stack(samples)
