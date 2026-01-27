@@ -25,7 +25,7 @@ from huggingface_hub import snapshot_download
 snapshot_download(repo_id="yucornetto/tokenizer_titok_bl128_vq8k_imagenet", local_dir="/mnt/shared-storage-user/jianglihan/myc/code/One-D-Piece/pretrained_weight/titok_bl128_vq8k")
 
 rjob submit \
-    --name=nvsdiffuion  \
+    --name=train_gen3r_adapter  \
     --gpu=8 \
     --memory=1600000 \
     --cpu=160 \
@@ -39,7 +39,26 @@ rjob submit \
     -P 1 \
     --host-network=true \
     -e DISTRIBUTED_JOB=false \
-    -- bash -exc /mnt/shared-storage-user/jianglihan/project/my_scripts/batch_pretokenize.sh
+    -e RCLONE_CONFIG=/home/jianglihan/.config/rclone/rclone.conf \
+    -- bash -exc /mnt/shared-storage-user/jianglihan/project/Gen3R_Train/my_scripts/train_tokenizer_adapter.sh
+
+rjob submit \
+    --name=infer  \
+    --gpu=4 \
+    --memory=800000 \
+    --cpu=80 \
+    --namespace ailab-idc3 \
+    --charged-group=idc3_gpu \
+    --private-machine=group \
+    --mount=gpfs://gpfs1/jianglihan:/mnt/shared-storage-user/jianglihan \
+    --mount=gpfs://gpfs1/idc2-shared:/mnt/shared-storage-user/idc2-shared \
+    --image=registry.h.pjlab.org.cn/ailab-idc2-idc2_gpu/jianglihan:base \
+    --custom-resources=brainpp.cn/fuse=1 \
+    -P 1 \
+    --host-network=true \
+    -e DISTRIBUTED_JOB=false \
+    -e RCLONE_CONFIG=/home/jianglihan/.config/rclone/rclone.conf \
+    -- bash -exc /mnt/shared-storage-user/jianglihan/myc/code/quadtok2/infer_h200.sh
 
 sudo WANDB_MODE=disabled accelerate launch \
     --mixed_precision=bf16 \
@@ -77,7 +96,7 @@ python scripts/inference_generator.py \
     --config configs/training/generator/gpt_quadtree.yaml \
     --num_samples 1000 \
     --batch_size 32 \
-    --checkpoint checkpoints/generator/gpt_quadtree_base_4096codebook/checkpoint-130000/ema_model/pytorch_model.bin 
+    --checkpoint checkpoints/generator/gpt_quadtree_base_4096codebook_2lod_fixpretokenization/checkpoint-30000/ema_model/pytorch_model.bin
 
 
 accelerate launch scripts/inference_generator.py \
@@ -88,12 +107,13 @@ accelerate launch scripts/inference_generator.py \
     --guidance_decay constant
 
 python scripts/extract_code_randomquadtree.py \
-    --config_dir checkpoints/quadtok_sl256_vq_ts12-4kcodebook-lod3/config.yaml \
+    --config_dir checkpoints/quadtok_sl256_vq_ts12-4kcodebook-2lods/config.yaml \
     --output_dir extract_token_log \
     --shards_index 0 \
-    --tokenizer_weight checkpoints/quadtok_sl256_vq_ts12-4kcodebook-lod3/checkpoint-350000/ema_model/pytorch_model.bin \
-    --output_tar_path /mnt/petrelfs/jianglihan/my_code/tmp_imagenet_codes/debug
-
+    --crop_range 1.05 \
+    --expansion_probs 0.5 \
+    --tokenizer_weight checkpoints/quadtok_sl256_vq_ts12-4kcodebook-2lods/checkpoint-350000/ema_model/pytorch_model.bin \
+    --output_tar_path /mnt/shared-storage-user/jianglihan/myc/code/tmp_imagenet_files
 
 rclone  copy --progress --transfers 200 --checkers 200 --links /mnt/petrelfs/jianglihan/my_code/tmp_imagenet_codes/debug/imagenet-train-000000.tar hoss:jianglihan/data/imagenet-debug
 

@@ -19,9 +19,9 @@ export WANDB_MODE=offline
 echo "Evaluating FID metrics on inference output..."
 
 launcher="python scripts/eval_imagenet_fid.py \
-  --output_dir /mnt/petrelfs/jianglihan/my_code/quadtok2/debug_imgs \
+  --output_dir checkpoints/generator/gpt_quadtree_base_4096codebook_2lod_fixpretokenization/inference_output/scale_1_pow_1.5_decay_linear_temp_1.00_num_50000 \
   --skip_processing \
-  --num_samples 100000"
+  --num_samples 50000"
 
 echo "Command to run:"
 echo "$launcher"

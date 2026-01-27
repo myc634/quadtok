@@ -935,6 +935,7 @@ def train_one_epoch_generator(
             #     generated_image = torch.clamp(generated_image, 0.0, 1.0)
             #     torchvision.utils.save_image(generated_image, f"debug_imgs/{accelerator.process_index:02d}_{total_samples:06d}.png")
             # breakpoint()
+            # a = 1
             
 
         else:
@@ -1022,9 +1023,6 @@ def train_one_epoch_generator(
                             f"LR: {lr:0.6f} "
                             f"Step: {global_step + 1} "
                             f"Loss: {loss_logs['train/total_loss']:0.4f} "
-                            f"LOD 3 Loss: {loss_logs['train/lod_3_loss']:0.4f} "
-                            f"LOD 4 Loss: {loss_logs['train/lod_4_loss']:0.4f} "
-                            f"LOD 5 Loss: {loss_logs['train/lod_5_loss']:0.4f} "
                             f"Token Acc: {loss_logs['train/acc']:0.4f} "
                         )
                 logs = {

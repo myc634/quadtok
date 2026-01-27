@@ -78,7 +78,7 @@ lr_scheduler:
 
 training:
     gradient_accumulation_steps: 1
-    per_gpu_batch_size: 32
+    per_gpu_batch_size: 128
     mixed_precision: "bf16"
     enable_tf32: True
     enable_wandb: True

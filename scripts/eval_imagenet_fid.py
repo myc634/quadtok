@@ -27,6 +27,19 @@ from data.webdataset_reader import ImageTransform
 from utils.eval_utils import Evaluator, create_npz_from_sample_folder
 import webdataset as wds
 
+env_path = "/mnt/shared-storage-user/jianglihan/mc3/envs/eval-gen/lib/python3.10/site-packages/nvidia"
+os.environ['LD_LIBRARY_PATH'] = f"{env_path}/cudnn/lib:{env_path}/cublas/lib:{os.environ.get('LD_LIBRARY_PATH', '')}"
+
+# 2. 解决显存申请问题
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    try:
+        for gpu in gpus:
+            # 设置显存按需增长，而不是一次性占满 141GB
+            tf.config.experimental.set_memory_growth(gpu, True)
+        print("Success: GPU memory growth enabled")
+    except RuntimeError as e:
+        print(f"Error enabling memory growth: {e}")
 
 def filter_keys(key_set):
     """Filter dictionary to only include specified keys."""
@@ -212,7 +225,7 @@ def main():
     parser.add_argument(
         "--ref_batch_path",
         type=str,
-        default="/mnt/petrelfs/jianglihan/my_code/quadtok/pretrained_weight/VIRTUAL_imagenet256_labeled.npz",
+        default="pretrained_weight/VIRTUAL_imagenet256_labeled.npz",
         help="Path to reference batch npz file",
     )
     parser.add_argument(

@@ -11,18 +11,18 @@
 # Configuration (Modify these parameters as needed)
 # ============================================================================
 
-CONFIG_DIR="checkpoints/quadtok_sl256_vq_ts12-4kcodebook-lod3/config.yaml"
-TOKENIZER_WEIGHT="checkpoints/quadtok_sl256_vq_ts12-4kcodebook-lod3/checkpoint-350000/ema_model/pytorch_model.bin"
-OUTPUT_DIR="extract_token_log/vq-ts12-4kcodebook-lod3"
-LOCAL_TMP_DIR="/mnt/petrelfs/jianglihan/my_code/tmp_imagenet_codes/vq-ts12-4kcodebook-lod3"
-REMOTE_HOSS_PATH="hoss:jianglihan/data/imagenet-pretokenized/vq-ts12-4kcodebook-lod3"
-START_SHARD_IDX=36
+CONFIG_DIR="checkpoints/quadtok_sl256_vq_ts12-4kcodebook-2lods/config.yaml"
+TOKENIZER_WEIGHT="checkpoints/quadtok_sl256_vq_ts12-4kcodebook-2lods/checkpoint-350000/ema_model/pytorch_model.bin"
+OUTPUT_DIR="extract_token_log/vq-ts12-4kcodebook-2lods"
+LOCAL_TMP_DIR="/mnt/shared-storage-user/jianglihan/myc/code/tmp_imagenet_files"
+REMOTE_HOSS_PATH="hoss:jianglihan/data/imagenet-pretokenized/vq-ts12-4kcodebook-2lods"
+START_SHARD_IDX=0
 END_SHARD_IDX=70
 GUARANTEED_DEPTH=3
 EXPANSION_PROBS="0.3 0.2"
 NUM_WORKERS=2
 NUM_GPUS=8
-CROP_RANGE=1.05
+CROP_RANGE=1.1
 
 # ============================================================================
 # Setup

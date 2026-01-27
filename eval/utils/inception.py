@@ -92,7 +92,7 @@ class FeatureExtractorInceptionV3(FeatureExtractorBase):
 
         self.fc = torch.nn.Linear(2048, 1008)
 
-        state_dict = load_state_dict_from_url(FID_WEIGHTS_URL, progress=True, model_dir="/mnt/petrelfs/jianglihan/my_code/quadtok/pretrained_weight")
+        state_dict = load_state_dict_from_url(FID_WEIGHTS_URL, progress=True, model_dir="pretrained_weight")
         #state_dict = torch.load(FID_WEIGHTS_URL, map_location='cpu')
         self.load_state_dict(state_dict)
 

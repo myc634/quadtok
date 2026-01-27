@@ -208,7 +208,7 @@ def main(args):
 
             num_samples += 1
         # print(f"Saved {batch_idx} samples")
-        # if batch_idx == 100:
+        # if num_samples == 100:
         #     break
     random.shuffle(all_sample_list)
     # Use TarWriter to create tar file
@@ -221,7 +221,7 @@ def main(args):
     output_tar_path = f"{args.output_tar_path}/imagenet-train-{save_idx:06d}.tar"
     tar_writer = wds.TarWriter(output_tar_path)
 
-    with wds.TarWriter(output_tar_file) as tar_writer:
+    with wds.TarWriter(output_tar_path) as tar_writer:
         for s in tqdm(all_sample_list, desc="Saving to Tar"):
             tar_writer.write(s)
     

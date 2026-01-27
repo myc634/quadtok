@@ -1497,7 +1497,7 @@ class QuadtreeGPT(BaseModel):
 
         self.patch_size = config.model.generator.patch_size
 
-        self.seq_len = 1365 # maimum quadtree token number
+        self.seq_len = 512 # maimum quadtree token number
         self.token_embed_dim = config.model.vq_model.token_size * (config.model.generator.patch_size**2)
         self.head_dim = self.embed_dim // self.num_heads
         self.grad_checkpointing = config.model.grad_checkpointing
@@ -1747,23 +1747,12 @@ class QuadtreeGPT(BaseModel):
         z = self.out_norm(z)
         token_logits = self.output(z).float()
 
-        weights = torch.ones_like(target_tokens) * -1.0
-
-        weights[tree_dict['lod_indices'] == 3] = 1.0
-        weights[tree_dict['lod_indices'] == 4] = 0.05
-        weights[tree_dict['lod_indices'] == 5] = 0.05
-
-        total_loss = F.cross_entropy(token_logits[valid_mask].contiguous().float(), target_tokens[valid_mask].contiguous(), reduction="none")
-        total_loss = (total_loss * weights[valid_mask].contiguous().float()).mean()
+        total_loss = F.cross_entropy(token_logits[valid_mask].contiguous().float(), target_tokens[valid_mask].contiguous(), reduction="mean")
 
         loss_dict = {}
 
         pred_tokens = torch.argmax(token_logits, dim=-1)
         acc = (pred_tokens == target_tokens)[valid_mask].float().mean()
-        # Combine losses
-        loss_dict['lod_3_loss'] = F.cross_entropy(token_logits[tree_dict['lod_indices']==3].contiguous().float(), target_tokens[tree_dict['lod_indices']==3].contiguous(), reduction="mean")
-        loss_dict['lod_4_loss'] = F.cross_entropy(token_logits[tree_dict['lod_indices']==4].contiguous().float(), target_tokens[tree_dict['lod_indices']==4].contiguous(), reduction="mean")
-        loss_dict['lod_5_loss'] = F.cross_entropy(token_logits[tree_dict['lod_indices']==5].contiguous().float(), target_tokens[tree_dict['lod_indices']==5].contiguous(), reduction="mean")  
 
         loss_dict['total_loss'] = total_loss.mean().detach()
         loss_dict['token_logits'] = token_logits.detach()
@@ -1811,7 +1800,7 @@ class QuadtreeGPT(BaseModel):
         tree_root = build_probabilistic_quadtree(
             self.num_patch_side_list, 
             guaranteed_depth=3, 
-            expansion_probs=[0.3, 0.2]
+            expansion_probs=[0.5]
         )
         final_tree = tree_to_decision_nodes_dict(tree_root, self.num_lod)
         lod_indices, patch_incides = [], []
