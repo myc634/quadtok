@@ -878,6 +878,42 @@ def train_one_epoch_generator(
             conditions = batch["class_id"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True)
             tree_dict = dict(lod_indices=batch["lod_indices"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True), patch_indices=batch["patch_indices"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True))
             
+            # Slow Version  !!!
+            # parent_patches_per_side = 8   # lod=3: patches_per_side_list[3]
+            # child_patches_per_side = 16   # lod=4: patches_per_side_list[4]
+            
+            # # Get lod=4 mask
+            # lod_4_mask = (tree_dict['lod_indices'] == 4)  # (batch_size, seq_len)
+            
+            # # For lod=4 patches, compute their parent (lod=3) patch indices
+            # # Reverse of _create_and_assign_children formula
+            # child_row, child_col = tree_dict['patch_indices'] // child_patches_per_side, tree_dict['patch_indices'] % child_patches_per_side
+            # parent_row, parent_col = child_row // 2, child_col // 2
+            # parent_patch_idx = parent_row * parent_patches_per_side + parent_col  # (batch_size, seq_len)
+            
+            # # Create the binary mask (batch_size, 64)
+            # lod_3_child_mask = torch.zeros(tree_dict['lod_indices'].shape[0], 64, dtype=torch.bool, device=accelerator.device)
+            
+            # # # Use advanced indexing to set mask: for each lod=4 node, mark its parent in lod=3
+            # batch_idx = torch.arange(tree_dict['lod_indices'].shape[0], device=accelerator.device).unsqueeze(1).expand_as(tree_dict['lod_indices'])
+            # lod_3_child_mask[batch_idx[lod_4_mask], parent_patch_idx[lod_4_mask].long()] = True
+
+            # tree_dict['child_mask'] = lod_3_child_mask
+            # Fast Version !!!
+            patch_indices = tree_dict['patch_indices']
+            parent_patch_idx = ((patch_indices // 32) * 8) + ((patch_indices % 16) // 2)
+            src_values = (tree_dict['lod_indices'] == 4)
+            safe_parent_idx = torch.where(
+                src_values, 
+                parent_patch_idx, 
+                torch.tensor(64, device=accelerator.device, dtype=patch_indices.dtype)
+            )
+
+            lod_3_child_mask = torch.zeros(tree_dict['lod_indices'].shape[0], 65, dtype=torch.bool, device=accelerator.device)
+            lod_3_child_mask.scatter_(1, safe_parent_idx.long(), src_values)
+
+            tree_dict['child_mask'] = lod_3_child_mask[:, :64]
+            # breakpoint()
             # # # Hack: Statistics for unique tokens per LOD (vectorized for speed)
             # lod_indices_tensor = tree_dict['lod_indices']  # (batch_size, seq_len)
             # # Flatten and filter out padding (-1)
@@ -925,7 +961,7 @@ def train_one_epoch_generator(
             #     plt.close()
             #     logger.info(f"Saved class label distribution histogram to {histogram_path}")
             #     breakpoint()
-            # generated_images = []
+            # # generated_images = []
             # import torchvision
             # for i in range(target_tokens.shape[0]):
             #     total_samples += 1
@@ -934,6 +970,17 @@ def train_one_epoch_generator(
             #     generated_image = tokenizer.decoder._forward_reconstruction(generated_tokens.unsqueeze(0), ordered_nodes)
             #     generated_image = torch.clamp(generated_image, 0.0, 1.0)
             #     torchvision.utils.save_image(generated_image, f"debug_imgs/{accelerator.process_index:02d}_{total_samples:06d}.png")
+
+            #     # draw tree
+            #     num_patches_per_side = tokenizer.num_patch_side_list[4]
+            #     patch_incides = tree_dict['patch_indices'][i][target_tokens[i] != -1][tree_dict['lod_indices'][i][target_tokens[i] != -1] == 4]
+            #     binary_map = torch.zeros(num_patches_per_side, num_patches_per_side, dtype=torch.int64)
+            #     for idx in patch_incides:
+            #         row, col = divmod(idx.item(), num_patches_per_side)
+            #         binary_map[row, col] = 1
+            #     torchvision.utils.save_image(binary_map.float(), f"debug_imgs/{accelerator.process_index:02d}_{total_samples:06d}_activate.png")
+            #     # breakpoint()
+
             # breakpoint()
             # a = 1
             
@@ -1023,6 +1070,8 @@ def train_one_epoch_generator(
                             f"LR: {lr:0.6f} "
                             f"Step: {global_step + 1} "
                             f"Loss: {loss_logs['train/total_loss']:0.4f} "
+                            f"Token Loss: {loss_logs['train/token_loss']:0.4f} "
+                            f"Binary Loss: {loss_logs['train/binary_loss']:0.4f} "
                             f"Token Acc: {loss_logs['train/acc']:0.4f} "
                         )
                 logs = {

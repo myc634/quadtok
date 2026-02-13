@@ -88,11 +88,13 @@ def sample_fn(generator,
         num_sample_steps=num_sample_steps)
 
     if isinstance(generated_tokens, tuple):
-        generated_tokens, tree = generated_tokens
+        generated_tokens, trees = generated_tokens
         if tokenizer.quantize_mode == "vq":
-            bs, len = generated_tokens.shape
-            generated_tokens = tokenizer.quantize.get_codebook_entry(generated_tokens.flatten(0, 1).long()).view(bs, len, -1)
-        generated_image = tokenizer.decoder._forward_reconstruction(generated_tokens, tree)
+            generated_image = []
+            for batch_token_incides, batch_tree in zip(generated_tokens, trees):
+                generated_tokens = tokenizer.quantize.get_codebook_entry(batch_token_incides.long()).view(1, batch_token_incides.shape[0], -1)
+                generated_image.append(tokenizer.decoder._forward_reconstruction(generated_tokens, batch_tree))
+            generated_image = torch.cat(generated_image)
     else:
         generated_image = tokenizer.decode_tokens(
             generated_tokens.view(generated_tokens.shape[0], -1)

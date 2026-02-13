@@ -1521,16 +1521,20 @@ class QuadtreeGPT(BaseModel):
         self.out_norm = RMSNorm(self.embed_dim, eps=1e-5)
         self.output = nn.Linear(self.embed_dim, config.model.vq_model.codebook_size, bias=False)
 
+        self.out_binary_norm = RMSNorm(self.embed_dim, eps=1e-5)
+        self.output_binary = nn.Linear(self.embed_dim, 1, bias=False)
+
 
         # --------------------------------------------------------------------------
         # Quadtree position embeddings (learnable tokens for each LOD and patch index)
         self.num_patch_side_list = config.model.generator.num_patch_side_list
         self.num_lod = len(self.num_patch_side_list)
-        
-        # for lod_idx, num_patches in enumerate(self.num_patch_side_list):
-        total_patches = self.num_patch_side_list[-1] ** 2
-        self.token_indices_embedding = nn.Embedding(total_patches, self.embed_dim)
-        self.lod_incides_embedding = nn.Embedding(self.num_lod, self.embed_dim)
+
+        self.token_incides_embedding_dict = nn.ModuleDict()
+        for lod_idx, num_patches in enumerate(self.num_patch_side_list):
+            total_patches = num_patches ** 2
+            if lod_idx >= 3:
+                self.token_incides_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.embed_dim)
 
         max_total_seq_len = 1 + self.seq_len * 2
         freqs_cis = precompute_freqs_cis(self.head_dim, max_total_seq_len)
@@ -1621,7 +1625,9 @@ class QuadtreeGPT(BaseModel):
             h = layer(h, freqs_cis, start_pos=input_pos, mask=mask)
         h = self.out_norm(h)
         logits = self.output(h)
-        return logits
+
+        binary_logits = self.output_binary(self.out_binary_norm(h))
+        return logits, binary_logits
 
     def input_preprocess(self, input_tokens, target_tokens, tree_dict):
         valid_mask = target_tokens != -1
@@ -1636,76 +1642,16 @@ class QuadtreeGPT(BaseModel):
         
         batch_size, max_seq_len = lod_indices.shape
         device = lod_indices.device
-        dtype = self.token_indices_embedding.weight.dtype
         
-        valid_mask = lod_indices != -1  # (batch_size, max_seq_len)
-        embeddings = torch.zeros(batch_size, max_seq_len, self.embed_dim, 
-                                device=device, dtype=dtype)
-        max_lod = self.num_lod - 1
-        lookup_batch = torch.zeros(batch_size, max_lod + 1, 
-                                  self.num_patch_side_list[-1] ** 2, 
-                                  dtype=torch.long, device=device)
-        lookup_batch.fill_(-1)
-        
-        b_idx = torch.arange(batch_size, device=device).view(-1, 1).expand(-1, max_seq_len)
-        s_idx = torch.arange(max_seq_len, device=device).view(1, -1).expand(batch_size, -1)
+        embeddings = torch.zeros(batch_size, max_seq_len, self.embed_dim, device=device, dtype=torch.float32)
+        for lod_key, embed_layer in self.token_incides_embedding_dict.items():
+            mask = (lod_indices == int(lod_key))
+            if mask.any():
+                active_patch_indices = patch_indices[mask]
+                active_embeddings = embed_layer(active_patch_indices)
+                embeddings[mask] = active_embeddings
 
-        valid_b = b_idx[valid_mask]
-        valid_lod = lod_indices[valid_mask]
-        valid_patch = patch_indices[valid_mask]
-        valid_s: Tensor = s_idx[valid_mask]
-
-        lookup_batch[valid_b, valid_lod, valid_patch] = valid_s
-        
-        for lod_level in range(max_lod, -1, -1):
-            lod_mask = (lod_indices == lod_level) & valid_mask
-            
-            if lod_level == max_lod:
-                lod_patch_indices = patch_indices[lod_mask]  # (num_nodes_at_lod,)
-                lod_embeddings = self.token_indices_embedding(lod_patch_indices)  # (num_nodes_at_lod, embed_dim)
-                batch_indices, seq_indices = torch.where(lod_mask)
-                embeddings[batch_indices, seq_indices] = lod_embeddings
-            else:
-                batch_indices, seq_indices = torch.where(lod_mask)
-                num_nodes = len(batch_indices)
-
-                parent_patch_indices = patch_indices[batch_indices, seq_indices]  # (num_nodes,)
-
-                parent_patches_per_side = self.num_patch_side_list[lod_level]
-                child_patches_per_side = self.num_patch_side_list[lod_level + 1]
-                parent_rows = parent_patch_indices // parent_patches_per_side  # (num_nodes,)
-                parent_cols = parent_patch_indices % parent_patches_per_side   # (num_nodes,)
-                
-                child_start_rows = parent_rows * 2  # (num_nodes,)
-                child_start_cols = parent_cols * 2  # (num_nodes,)
-                
-                child_top_left = child_start_rows * child_patches_per_side + child_start_cols  # (num_nodes,)
-                child_top_right = child_top_left + 1  # (num_nodes,)
-                child_bottom_left = (child_start_rows + 1) * child_patches_per_side + child_start_cols  # (num_nodes,)
-                child_bottom_right = child_bottom_left + 1  # (num_nodes,)
-                
-                child_patch_indices_all = torch.stack([
-                    child_top_left, child_top_right, child_bottom_left, child_bottom_right
-                ], dim=1)  # (num_nodes, 4)
-                
-                child_lod = lod_level + 1
-
-                child_seq_indices = lookup_batch[batch_indices.unsqueeze(1).expand(-1, 4), child_lod, child_patch_indices_all]  # (num_nodes, 4)
-                
-                child_mask = child_seq_indices != -1  # (num_nodes, 4)
-                batch_indices_expanded = batch_indices.unsqueeze(1).expand(-1, 4)  # (num_nodes, 4)
-                
-                safe_child_seq_indices = torch.clamp(child_seq_indices, min=0)  # (num_nodes, 4)
-                child_embeddings_all = embeddings[batch_indices_expanded, safe_child_seq_indices]  # (num_nodes, 4, embed_dim)
-
-                child_embeddings_masked = child_embeddings_all * child_mask.unsqueeze(-1)  # (num_nodes, 4, embed_dim)
-                valid_counts = child_mask.sum(dim=1, keepdim=True)  # (num_nodes, 1)
-                valid_counts = torch.clamp(valid_counts, min=1)  # Avoid division by zero
-                parent_embeddings = child_embeddings_masked.sum(dim=1) / valid_counts  # (num_nodes, embed_dim)
-                
-                embeddings[batch_indices, seq_indices] = parent_embeddings
-        lod_embeddings = self.lod_incides_embedding(lod_indices.clamp(0))
-        return embeddings + lod_embeddings
+        return embeddings
 
     def forward(self, input_tokens, target_tokens, tree_dict, labels):
         """
@@ -1724,6 +1670,7 @@ class QuadtreeGPT(BaseModel):
         bs, max_seq_len = target_tokens.shape
         device = target_tokens.device
         # get valid mask
+        child_mask = tree_dict['child_mask']
         input_tokens, valid_mask = self.input_preprocess(input_tokens, target_tokens, tree_dict)
 
         cond_embeddings = self.cls_embedding(labels, train=self.training)[:,:self.cls_token_num]
@@ -1747,7 +1694,12 @@ class QuadtreeGPT(BaseModel):
         z = self.out_norm(z)
         token_logits = self.output(z).float()
 
-        total_loss = F.cross_entropy(token_logits[valid_mask].contiguous().float(), target_tokens[valid_mask].contiguous(), reduction="mean")
+        binary_logits = self.output_binary(self.out_binary_norm(z))
+
+        token_loss = F.cross_entropy(token_logits[valid_mask].contiguous().float(), target_tokens[valid_mask].contiguous(), reduction="mean")
+        binary_loss = F.binary_cross_entropy_with_logits(binary_logits[tree_dict['lod_indices'] == 3].squeeze(-1).contiguous().float(), child_mask.flatten().contiguous().float(), reduction="mean")
+
+        total_loss = token_loss + binary_loss
 
         loss_dict = {}
 
@@ -1755,8 +1707,11 @@ class QuadtreeGPT(BaseModel):
         acc = (pred_tokens == target_tokens)[valid_mask].float().mean()
 
         loss_dict['total_loss'] = total_loss.mean().detach()
+        loss_dict['token_loss'] = token_loss.mean().detach()
+        loss_dict['binary_loss'] = binary_loss.mean().detach()
         loss_dict['token_logits'] = token_logits.detach()
         loss_dict['acc'] = acc.detach()
+
         return total_loss, loss_dict
 
     def cfg_lod_scheduler(self, cfg_scale_base, step, current_lod):
@@ -1804,18 +1759,22 @@ class QuadtreeGPT(BaseModel):
         )
         final_tree = tree_to_decision_nodes_dict(tree_root, self.num_lod)
         lod_indices, patch_incides = [], []
+        base_node_list = []
         for lod_idx, nodes in final_tree.items():
-            if lod_idx >= 3:
+            if lod_idx == 3:
                 for node in nodes:
+                    base_node_list.append(node)
                     lod_indices.append(node.lod_level)
                     patch_incides.append(node.patch_index)
 
         lod_indices = torch.tensor(lod_indices, device=device, dtype=torch.long).unsqueeze(0).expand(bsz, -1)
         patch_incides = torch.tensor(patch_incides, device=device, dtype=torch.long).unsqueeze(0).expand(bsz, -1)
         tree_dict = dict(lod_indices=lod_indices, patch_indices=patch_incides)
-        max_seq_len = lod_indices.shape[1]
+
+        max_seq_len = lod_indices.shape[1] + 256
 
         result_tokens = torch.zeros(bsz, max_seq_len, device=device, dtype=torch.long)
+        expand_label = torch.zeros(bsz, lod_indices.shape[1])
 
         # Step2: Prepare Position Embeddings and CFG
         token_indices_embedding = self.get_token_indices_embedding(tree_dict)
@@ -1842,7 +1801,8 @@ class QuadtreeGPT(BaseModel):
 
         for step in range(max_seq_len):
 
-            token_logitis = self.forward_inference(x, cur_freqs_cis, input_pos)
+            token_logitis, binary_logits = self.forward_inference(x, cur_freqs_cis, input_pos)
+
 
             if not guidance_scale == 1.0:
                 if guidance_decay == "linear":
@@ -1855,26 +1815,78 @@ class QuadtreeGPT(BaseModel):
                     cfg_iter = (guidance_scale - 1) * scale_step + 1
                 elif guidance_decay == "lod_scheduler":
                     cfg_iter = self.cfg_lod_scheduler(guidance_scale, step, lod_indices[:, step].float().mean())
-
             else:
                 cfg_iter = guidance_scale
+            # decide expand or not:
+            if not guidance_scale == 1.0:
+                cond_binary_logits, uncond_binary_logits = torch.chunk(binary_logits, 2, dim=0)
+                binary_logits = uncond_binary_logits + cfg_iter * (cond_binary_logits - uncond_binary_logits)
+            else:
+                binary_logits = binary_logits
+            if step < lod_indices.shape[1]:
+                expand_label[:, step] = torch.bernoulli(binary_logits.sigmoid()).squeeze()
+
+            if step == lod_indices.shape[1] - 1:
+                parent_patches_per_side = 8   # lod=3
+                child_patches_per_side = 16   # lod=4
+                
+                parent_row, parent_col = patch_incides // parent_patches_per_side, patch_incides % parent_patches_per_side
+                child_start_row, child_start_col = parent_row * 2, parent_col * 2
+                
+                child_top_left = child_start_row * child_patches_per_side + child_start_col
+                child_top_right = child_top_left + 1
+                child_bottom_left = (child_start_row + 1) * child_patches_per_side + child_start_col
+                child_bottom_right = child_bottom_left + 1
+                
+                # child_patch_indices: (bsz, num_lod3_nodes, 4)
+                child_patch_indices = torch.stack([child_top_left, child_top_right, child_bottom_left, child_bottom_right], dim=-1)
+                
+                # expand_mask: (bsz, num_lod3_nodes, 4)
+                expand_mask = expand_label.bool().unsqueeze(-1).expand(-1, -1, 4)
+                
+                child_patch_indices_flat = child_patch_indices.reshape(condition.shape[0], -1)
+                expand_mask_flat = expand_mask.reshape(condition.shape[0], -1)
+
+                num_new_tokens_per_sample = expand_mask_flat.sum(dim=1) # (bsz,)
+                max_new_tokens = num_new_tokens_per_sample.max().item()
+
+                lod4_patch_indices_padded = torch.zeros(condition.shape[0], max_new_tokens, device=device, dtype=torch.long)
+                sorted_mask, sort_indices = torch.sort(expand_mask_flat.long(), dim=1, descending=True, stable=True)
+
+                gathered_indices = torch.gather(child_patch_indices_flat, 1, sort_indices.to(device))
+                
+                if max_new_tokens > 0:
+                    lod4_patch_indices_padded = gathered_indices[:, :max_new_tokens]
+                    lod4_valid_mask = sorted_mask[:, :max_new_tokens].bool().to(device)
+                    lod4_patch_indices_padded = lod4_patch_indices_padded * lod4_valid_mask.long()
+                else:
+                    lod4_patch_indices_padded = torch.zeros(condition.shape[0], 0, device=device, dtype=torch.long)
+                    lod4_valid_mask = torch.zeros(condition.shape[0], 0, device=device, dtype=torch.bool)
+                
+                if max_new_tokens > 0:
+                    lod4_embeddings = self.token_incides_embedding_dict['4'](lod4_patch_indices_padded)
+                    lod4_embeddings[~lod4_valid_mask] = 0
+                    token_indices_embedding = torch.cat([token_indices_embedding[:, :step + 1], lod4_embeddings], dim=1)  
+
+
+
             if not guidance_scale == 1.0:
                 cond_logits, uncond_logits = torch.chunk(token_logitis, 2, dim=0)
                 logits = uncond_logits + cfg_iter * (cond_logits - uncond_logits)
-
-                # std_c = cond_logits.std(dim=-1, keepdim=True)
-                # std_cfg = logits.std(dim=-1, keepdim=True)
-                # logits = logits * (std_c / std_cfg)
             else:
                 logits = token_logitis
-            entropy = calculate_entropy(logits)
-            # breakpoint()
-            # print(f"Step {step}, LOD: {lod_indices[:, step].float().mean()}, entropy: {entropy}")
-            incides = sample(logits, randomize_temperature)[0]
-            result_tokens[:, step] = incides.clone().squeeze(1)
 
-            if step == max_seq_len - 1:
-                break
+            incides = sample(logits, randomize_temperature)[0]
+
+            if step > lod_indices.shape[1] - 1:
+                lod4_step_index = step - lod_indices.shape[1]
+                is_valid_step = lod4_step_index < num_new_tokens_per_sample
+                incides[~is_valid_step] = 0
+
+            result_tokens[:, step] = incides.clone().squeeze(1)
+            if step > lod_indices.shape[1] - 1:
+                if step == token_indices_embedding.shape[1] - 1:
+                    break
 
             token_latent = self.tok_embeddings(incides)
 
@@ -1888,15 +1900,16 @@ class QuadtreeGPT(BaseModel):
             input_pos = torch.arange(cache_position, cache_position + 1, device=condition.device)
             cache_position += 1
         self.remove_caches()
-        # reverse_permutation = torch.argsort(permutation_indices, dim=1, stable=True)  # (original_bsz, max_seq_len)
-        
-        # batch_indices_reverse = torch.arange(condition.shape[0], device=device).unsqueeze(1).expand(-1, max_seq_len)
-        # result_tokens_original = result_tokens[batch_indices_reverse, reverse_permutation]
+        final_token_list, final_tree_list = [], []
+        for b in range(condition.shape[0]):
+            valid_len = lod_indices.shape[1] + num_new_tokens_per_sample[b].item()
+            final_token_list.append(result_tokens[b, :valid_len])
 
-        ori_ordered_nodes = self._get_ordered_nodes(tree_root)
-        ordered_nodes = []
-        for node in ori_ordered_nodes:
-            if node.lod_level >= 3:
-                ordered_nodes.append(node)
-        
-        return result_tokens, ordered_nodes
+            batch_base_node_list = copy.deepcopy(base_node_list)
+            valid_patch_indices = lod4_patch_indices_padded[b, :num_new_tokens_per_sample[b].item()]
+            for patch_idx in valid_patch_indices:
+                new_node = QuadTreeNode(lod_level=4, patch_index=patch_idx.item())
+                batch_base_node_list.append(new_node)
+
+            final_tree_list.append(batch_base_node_list) 
+        return final_token_list, final_tree_list

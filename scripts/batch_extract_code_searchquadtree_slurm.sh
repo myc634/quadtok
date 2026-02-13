@@ -13,13 +13,13 @@
 
 CONFIG_DIR="checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods/config.yaml"
 TOKENIZER_WEIGHT="checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods/checkpoint-400000/ema_model/pytorch_model.bin"
-OUTPUT_DIR="extract_token_log/vq-ts8-16kcodebook-2lods"
-LOCAL_TMP_DIR="/mnt/petrelfs/jianglihan/my_code/tmp_imagenet_codes/vq-ts8-16kcodebook-2lods-expand075"
-REMOTE_HOSS_PATH="hoss:jianglihan/data/imagenet-pretokenized/vq-ts8-16kcodebook-2lods-expand075"
+OUTPUT_DIR="extract_token_log/search-vq-ts8-16kcodebook-2lods"
+LOCAL_TMP_DIR="/mnt/petrelfs/jianglihan/my_code/tmp_imagenet_codes/search-vq-ts8-16kcodebook-2lods"
+REMOTE_HOSS_PATH="hoss:jianglihan/data/imagenet-pretokenized/search-vq-ts8-16kcodebook-2lods"
 START_SHARD_IDX=0
 END_SHARD_IDX=70
 GUARANTEED_DEPTH=3
-EXPANSION_PROBS="0.75"
+EXPANSION_PROBS="0.5"
 NUM_WORKERS=2
 NUM_GPUS=8
 CROP_RANGE=1.05
@@ -74,7 +74,7 @@ process_shard() {
     echo "[$(date)] [GPU ${gpu_id}] Starting processing for shard ${shard_str} (will save as ${save_idx_str})..."
     
     # Step 1: Extract codes and generate tar file
-    CUDA_VISIBLE_DEVICES=${gpu_id} python scripts/extract_code_randomquadtree.py \
+    CUDA_VISIBLE_DEVICES=${gpu_id} python /mnt/petrelfs/jianglihan/my_code/quadtok2_search/scripts/extract_code_searchquadtree.py \
         --config_dir "${CONFIG_DIR}" \
         --tokenizer_weight "${TOKENIZER_WEIGHT}" \
         --output_dir "${OUTPUT_DIR}" \

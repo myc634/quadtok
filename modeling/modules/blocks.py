@@ -1579,23 +1579,23 @@ class QuadTokSelctor(nn.Module):
         
         return x
 
-    def _forward_optimize(self, latent_feats, tree_structure_list, batch_expand_list=None):
+    def _forward_optimize(self, latent_feats, ordered_nodes_list, batch_expand_list=None):
         if latent_feats.ndim == 2:
             latent_feats = latent_feats.unsqueeze(0)  # (1, num_latent_tokens, D)
         
         # Get batch size from tree_structure_list
-        batch_size = len(tree_structure_list)
+        batch_size = len(ordered_nodes_list)
         device = latent_feats.device
         D = self.latent_token_positional_embedding.shape[-1]
         dtype = latent_feats.dtype
         
-        # Get ordered_nodes for all trees
+        '''# Get ordered_nodes for all trees 
         ordered_nodes_list = []
         for tree_structure in tree_structure_list:
             ordered_nodes = []
             for key, value in tree_structure.items():
                 ordered_nodes.extend(value)
-            ordered_nodes_list.append(ordered_nodes)
+            ordered_nodes_list.append(ordered_nodes)'''
 
         seq_lengths = [len(nodes) for nodes in ordered_nodes_list]
         max_seq_len_tree = max(seq_lengths) if seq_lengths else 0
