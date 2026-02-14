@@ -9,7 +9,7 @@
 
 source /mnt/petrelfs/jianglihan/miniforge3/bin/activate 1d
 
-cd /mnt/petrelfs/jianglihan/my_code/quadtok
+cd /mnt/petrelfs/jianglihan/my_code/quadtok2
 
 # 设置环境变量
 export LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:$LD_LIBRARY_PATH
@@ -32,10 +32,10 @@ launcher="accelerate launch \
   --main_process_port=$MASTER_PORT \
   --mixed_precision=bf16 \
   scripts/inference_generator.py \
-  --config configs/training/generator/gpt_quadtree.yaml \
+  --config configs/inference/gpt_16k_large.yaml \
   --num_samples 50000 \
   --batch_size 64 \
-  --checkpoint checkpoints/generator/gpt_quadtree_base_4096codebook/checkpoint-130000/ema_model/pytorch_model.bin"
+  --checkpoint checkpoints/generator/gpt_quadtree_base_16kcodebook_2lod_large_decay2x_4e-4lr_qknorm_maxgrad0.5/checkpoint-230000/ema_model/pytorch_model.bin"
 
 echo "Command to run:"
 echo "$launcher"

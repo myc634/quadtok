@@ -4,25 +4,25 @@
 #SBATCH --gres=gpu:8            # 申请 8 张 GPU
 #SBATCH --ntasks-per-node=1     # 每个节点启 1 个任务 (即 1 个 accelerate 实例)
 #SBATCH --cpus-per-task=32      # CPU 核心数 (单机数据加载压力大，建议给足)
-#SBATCH -J ten105_ec         # 任务名称
+#SBATCH -J pretokenization         # 任务名称
 #SBATCH -o logs/extract_code_%j.out # 日志输出
 
 # ============================================================================
 # Configuration (Modify these parameters as needed)
 # ============================================================================
 
-CONFIG_DIR="checkpoints/quadtok_sl256_vq_ts12-4kcodebook-2lods/config.yaml"
-TOKENIZER_WEIGHT="checkpoints/quadtok_sl256_vq_ts12-4kcodebook-2lods/checkpoint-350000/ema_model/pytorch_model.bin"
-OUTPUT_DIR="extract_token_log/vq-ts12-4kcodebook-2lods"
-LOCAL_TMP_DIR="/mnt/shared-storage-user/jianglihan/myc/code/tmp_imagenet_files"
-REMOTE_HOSS_PATH="hoss:jianglihan/data/imagenet-pretokenized/vq-ts12-4kcodebook-2lods"
+CONFIG_DIR="checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods/config.yaml"
+TOKENIZER_WEIGHT="checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods/checkpoint-400000/ema_model/pytorch_model.bin"
+OUTPUT_DIR="extract_token_log/vq-ts8-16kcodebook-2lods"
+LOCAL_TMP_DIR="/mnt/petrelfs/jianglihan/my_code/tmp_imagenet_codes/vq-ts8-16kcodebook-2lods-expand075"
+REMOTE_HOSS_PATH="hoss:jianglihan/data/imagenet-pretokenized/vq-ts8-16kcodebook-2lods-expand075"
 START_SHARD_IDX=0
 END_SHARD_IDX=70
 GUARANTEED_DEPTH=3
-EXPANSION_PROBS="0.3 0.2"
+EXPANSION_PROBS="0.75"
 NUM_WORKERS=2
 NUM_GPUS=8
-CROP_RANGE=1.1
+CROP_RANGE=1.05
 
 # ============================================================================
 # Setup
