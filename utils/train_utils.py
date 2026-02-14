@@ -1071,7 +1071,7 @@ def train_one_epoch_generator(
                             f"Step: {global_step + 1} "
                             f"Loss: {loss_logs['train/total_loss']:0.4f} "
                             f"Token Loss: {loss_logs['train/token_loss']:0.4f} "
-                            f"Binary Loss: {loss_logs['train/binary_loss']:0.4f} "
+                            f"Structure Loss: {loss_logs['train/structure_loss']:0.4f} "
                             f"Token Acc: {loss_logs['train/acc']:0.4f} "
                         )
                 logs = {
