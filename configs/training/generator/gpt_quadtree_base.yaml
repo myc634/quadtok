@@ -1,9 +1,9 @@
 
 experiment:
     project: "dynamic_tokenizer_generation"
-    name: "gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr_search_pred"
+    name: "gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr_search_interleave"
     # output_dir: "checkpoints/datacheck/debug"
-    output_dir: "checkpoints/generator/gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr_search_pred"
+    output_dir: "checkpoints/generator/gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr_search_interleave"
     max_train_examples: 2_562_3340
     save_every: 10_000
     eval_every: 50_000

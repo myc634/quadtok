@@ -1,15 +1,15 @@
 experiment:
   project: dynamic_tokenizer_generation
-  name: gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr
-  output_dir: checkpoints/generator/gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr
+  name: gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr_search_pred
+  output_dir: checkpoints/generator/gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr_search_pred
   max_train_examples: 25623340
   save_every: 10000
   eval_every: 50000
   generate_every: 1000
   log_every: 50
   log_grad_norm_every: 1000
-  resume: true
-  logging_dir: checkpoints/generator/gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr/logs
+  resume: false
+  logging_dir: checkpoints/generator/gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr_search_pred/logs
 tokenizer:
   type: quadtok
   tokenizer_ckpt_dir: checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods/checkpoint-400000/ema_model/pytorch_model.bin

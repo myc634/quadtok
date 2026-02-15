@@ -1530,13 +1530,10 @@ class QuadtreeGPT(BaseModel):
         self.num_patch_side_list = config.model.generator.num_patch_side_list
         self.num_lod = len(self.num_patch_side_list)
 
-        self.token_incides_embedding_dict = nn.ModuleDict()
-        for lod_idx, num_patches in enumerate(self.num_patch_side_list):
-            total_patches = num_patches ** 2
-            if lod_idx >= 3:
-                self.token_incides_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.embed_dim)
-
-        max_total_seq_len = 1 + self.seq_len * 2
+        self.base_token_embedding = nn.Embedding(self.num_patch_side_list[3]**2, self.embed_dim)
+        self.direction_token_embedding = nn.Parameter(torch.zeros(4, self.embed_dim))
+        self.task_embedding = nn.Parameter(torch.zeros(2, self.embed_dim))
+        max_total_seq_len = 1 + self.seq_len * 2 + 64
         freqs_cis = precompute_freqs_cis(self.head_dim, max_total_seq_len)
         self.register_buffer("freqs_cis", freqs_cis)
 
@@ -1549,6 +1546,8 @@ class QuadtreeGPT(BaseModel):
 
         # Zero-out output layers:
         nn.init.constant_(self.output.weight, 0)
+        nn.init.normal_(self.direction_token_embedding, std=.02)
+        nn.init.normal_(self.task_embedding, std=.02)
 
     def _init_weights(self, module):
         std = 0.02
@@ -1761,7 +1760,7 @@ class QuadtreeGPT(BaseModel):
         lod_indices, patch_incides = [], []
         base_node_list = []
         for lod_idx, nodes in final_tree.items():
-            if lod_idx == 3:
+            if lod_idx >= 3:
                 for node in nodes:
                     base_node_list.append(node)
                     lod_indices.append(node.lod_level)
@@ -1771,13 +1770,14 @@ class QuadtreeGPT(BaseModel):
         patch_incides = torch.tensor(patch_incides, device=device, dtype=torch.long).unsqueeze(0).expand(bsz, -1)
         tree_dict = dict(lod_indices=lod_indices, patch_indices=patch_incides)
 
-        max_seq_len = lod_indices.shape[1] + 256
+        max_seq_len = lod_indices.shape[1] #+ 256
 
         result_tokens = torch.zeros(bsz, max_seq_len, device=device, dtype=torch.long)
         expand_label = torch.zeros(bsz, lod_indices.shape[1])
 
         # Step2: Prepare Position Embeddings and CFG
         token_indices_embedding = self.get_token_indices_embedding(tree_dict)
+        # breakpoint()
         # permutation_indices = self.shuffle_tokens_within_lod(bsz, max_seq_len, tree_dict, device)
         # batch_indices = torch.arange(bsz, device=device).unsqueeze(1).expand(-1, max_seq_len)
 
@@ -1826,47 +1826,47 @@ class QuadtreeGPT(BaseModel):
             if step < lod_indices.shape[1]:
                 expand_label[:, step] = torch.bernoulli(binary_logits.sigmoid()).squeeze()
 
-            if step == lod_indices.shape[1] - 1:
-                parent_patches_per_side = 8   # lod=3
-                child_patches_per_side = 16   # lod=4
+            # if step == lod_indices.shape[1] - 1:
+            #     parent_patches_per_side = 8   # lod=3
+            #     child_patches_per_side = 16   # lod=4
                 
-                parent_row, parent_col = patch_incides // parent_patches_per_side, patch_incides % parent_patches_per_side
-                child_start_row, child_start_col = parent_row * 2, parent_col * 2
+            #     parent_row, parent_col = patch_incides // parent_patches_per_side, patch_incides % parent_patches_per_side
+            #     child_start_row, child_start_col = parent_row * 2, parent_col * 2
                 
-                child_top_left = child_start_row * child_patches_per_side + child_start_col
-                child_top_right = child_top_left + 1
-                child_bottom_left = (child_start_row + 1) * child_patches_per_side + child_start_col
-                child_bottom_right = child_bottom_left + 1
+            #     child_top_left = child_start_row * child_patches_per_side + child_start_col
+            #     child_top_right = child_top_left + 1
+            #     child_bottom_left = (child_start_row + 1) * child_patches_per_side + child_start_col
+            #     child_bottom_right = child_bottom_left + 1
                 
-                # child_patch_indices: (bsz, num_lod3_nodes, 4)
-                child_patch_indices = torch.stack([child_top_left, child_top_right, child_bottom_left, child_bottom_right], dim=-1)
+            #     # child_patch_indices: (bsz, num_lod3_nodes, 4)
+            #     child_patch_indices = torch.stack([child_top_left, child_top_right, child_bottom_left, child_bottom_right], dim=-1)
                 
-                # expand_mask: (bsz, num_lod3_nodes, 4)
-                expand_mask = expand_label.bool().unsqueeze(-1).expand(-1, -1, 4)
+            #     # expand_mask: (bsz, num_lod3_nodes, 4)
+            #     expand_mask = expand_label.bool().unsqueeze(-1).expand(-1, -1, 4)
                 
-                child_patch_indices_flat = child_patch_indices.reshape(condition.shape[0], -1)
-                expand_mask_flat = expand_mask.reshape(condition.shape[0], -1)
+            #     child_patch_indices_flat = child_patch_indices.reshape(condition.shape[0], -1)
+            #     expand_mask_flat = expand_mask.reshape(condition.shape[0], -1)
 
-                num_new_tokens_per_sample = expand_mask_flat.sum(dim=1) # (bsz,)
-                max_new_tokens = num_new_tokens_per_sample.max().item()
+            #     num_new_tokens_per_sample = expand_mask_flat.sum(dim=1) # (bsz,)
+            #     max_new_tokens = num_new_tokens_per_sample.max().item()
 
-                lod4_patch_indices_padded = torch.zeros(condition.shape[0], max_new_tokens, device=device, dtype=torch.long)
-                sorted_mask, sort_indices = torch.sort(expand_mask_flat.long(), dim=1, descending=True, stable=True)
+            #     lod4_patch_indices_padded = torch.zeros(condition.shape[0], max_new_tokens, device=device, dtype=torch.long)
+            #     sorted_mask, sort_indices = torch.sort(expand_mask_flat.long(), dim=1, descending=True, stable=True)
 
-                gathered_indices = torch.gather(child_patch_indices_flat, 1, sort_indices.to(device))
+            #     gathered_indices = torch.gather(child_patch_indices_flat, 1, sort_indices.to(device))
                 
-                if max_new_tokens > 0:
-                    lod4_patch_indices_padded = gathered_indices[:, :max_new_tokens]
-                    lod4_valid_mask = sorted_mask[:, :max_new_tokens].bool().to(device)
-                    lod4_patch_indices_padded = lod4_patch_indices_padded * lod4_valid_mask.long()
-                else:
-                    lod4_patch_indices_padded = torch.zeros(condition.shape[0], 0, device=device, dtype=torch.long)
-                    lod4_valid_mask = torch.zeros(condition.shape[0], 0, device=device, dtype=torch.bool)
+            #     if max_new_tokens > 0:
+            #         lod4_patch_indices_padded = gathered_indices[:, :max_new_tokens]
+            #         lod4_valid_mask = sorted_mask[:, :max_new_tokens].bool().to(device)
+            #         lod4_patch_indices_padded = lod4_patch_indices_padded * lod4_valid_mask.long()
+            #     else:
+            #         lod4_patch_indices_padded = torch.zeros(condition.shape[0], 0, device=device, dtype=torch.long)
+            #         lod4_valid_mask = torch.zeros(condition.shape[0], 0, device=device, dtype=torch.bool)
                 
-                if max_new_tokens > 0:
-                    lod4_embeddings = self.token_incides_embedding_dict['4'](lod4_patch_indices_padded)
-                    lod4_embeddings[~lod4_valid_mask] = 0
-                    token_indices_embedding = torch.cat([token_indices_embedding[:, :step + 1], lod4_embeddings], dim=1)  
+            #     if max_new_tokens > 0:
+            #         lod4_embeddings = self.token_incides_embedding_dict['4'](lod4_patch_indices_padded)
+            #         lod4_embeddings[~lod4_valid_mask] = 0
+            #         token_indices_embedding = torch.cat([token_indices_embedding[:, :step + 1], lod4_embeddings], dim=1)  
 
 
 
@@ -1902,14 +1902,14 @@ class QuadtreeGPT(BaseModel):
         self.remove_caches()
         final_token_list, final_tree_list = [], []
         for b in range(condition.shape[0]):
-            valid_len = lod_indices.shape[1] + num_new_tokens_per_sample[b].item()
-            final_token_list.append(result_tokens[b, :valid_len])
+            # valid_len = lod_indices.shape[1] + num_new_tokens_per_sample[b].item()
+            final_token_list.append(result_tokens[b]) #, :valid_len
 
             batch_base_node_list = copy.deepcopy(base_node_list)
-            valid_patch_indices = lod4_patch_indices_padded[b, :num_new_tokens_per_sample[b].item()]
-            for patch_idx in valid_patch_indices:
-                new_node = QuadTreeNode(lod_level=4, patch_index=patch_idx.item())
-                batch_base_node_list.append(new_node)
+            # valid_patch_indices = lod4_patch_indices_padded[b, :num_new_tokens_per_sample[b].item()]
+            # for patch_idx in valid_patch_indices:
+            #     new_node = QuadTreeNode(lod_level=4, patch_index=patch_idx.item())
+            #     batch_base_node_list.append(new_node)
 
             final_tree_list.append(batch_base_node_list) 
         return final_token_list, final_tree_list

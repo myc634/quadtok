@@ -19,7 +19,7 @@ export WANDB_MODE=offline
 echo "Evaluating FID metrics on inference output..."
 
 launcher="python scripts/eval_imagenet_fid.py \
-  --output_dir tmp_ckpts/gpt_quadtree_base_16kcodebook_2lod_large_decay2x_4e-4lr_qknorm_maxgrad0.5_pserver/90kckpt/inference_output/scale_6_pow_1.5_decay_power-cosine_temp_1.00_num_50000 \
+  --output_dir checkpoints/generator/gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr_search_pred/inference_output/scale_2.5_pow_1.5_decay_linear_temp_1.00_num_50000 \
   --skip_processing \
   --num_samples 50000"
 
