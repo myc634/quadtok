@@ -80,7 +80,7 @@ losses:
 dataset:
     type: "pre_tokenized"
     params:
-        shards_path: "pipe:rclone cat hoss:jianglihan/data/imagenet-pretokenized/search-vq-ts8-16kcodebook-2lods/imagenet-train-{000000..000141}.tar"
+        shards_path: "pipe:rclone cat hoss:jianglihan/data/imagenet-pretokenized/search-vq-ts8-16kcodebook-2lods-adaptivelen/imagenet-train-{000000..000141}.tar"
         # shards_path: "pipe:rclone cat hoss:jianglihan/data/imagenet-pretokenized/vq-ts12-4096codebook-base/imagenet-train-{000000..000141}.tar"
         num_workers_per_gpu: 2
      # unused in pre_tokenized dataset
