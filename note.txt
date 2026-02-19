@@ -1,4 +1,4 @@
-srun --jobid=7234798 /bin/bash
+srun --jobid=7451277 /bin/bash
 source ~/.bashrc
 nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.total,memory.used,memory.free --format=csv -l 1 > /mnt/petrelfs/jianglihan/my_code/quadtok/gpu.log &
 
@@ -6,7 +6,7 @@ PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_tokenizer.py config=
 
 PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_tokenizer.py config=configs/training/single_stage/quadtok_ss256_vae_repa.yaml
 
-TORCH_DISTRIBUTED_DEBUG=DETAIL CUDA_LAUNCH_BLOCKING=1 PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_generator.py config=configs/training/generator/gpt_quadtree.yaml
+TORCH_DISTRIBUTED_DEBUG=DETAIL CUDA_LAUNCH_BLOCKING=1 PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_generator.py config=configs/training/generator/gpt_quadtree_large.yaml
 
 CUDA_LAUNCH_BLOCKING=1 PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_generator.py config=configs/training/generator/gpt_quadtree_fixtree.yaml
 

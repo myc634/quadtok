@@ -41,7 +41,7 @@ launcher="accelerate launch \
   --num_processes=$((SLURM_NNODES * gpus_per_node)) \
   --num_machines=$SLURM_NNODES \
   --machine_rank=\$SLURM_PROCID \
-  scripts/train_generator.py config=configs/training/generator/gpt_quadtree.yaml"
+  scripts/train_generator.py config=configs/training/generator/gpt_quadtree_xlarge.yaml"
 
 echo "Command to run:"
 echo "$launcher"

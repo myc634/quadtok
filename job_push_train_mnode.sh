@@ -12,7 +12,7 @@
 # ===========================
 source /mnt/petrelfs/jianglihan/miniforge3/bin/activate 1d
 
-cd /mnt/petrelfs/jianglihan/my_code/quadtok2
+cd /mnt/petrelfs/jianglihan/my_code/quadtok3
 
 # 设置 CUDA 库路径
 export LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:$LD_LIBRARY_PATH

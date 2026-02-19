@@ -192,6 +192,10 @@ class Attention(nn.Module):
         self.attn_dropout_p = attn_dropout_p
         self.resid_dropout = nn.Dropout(resid_dropout_p)
 
+        # qknorm
+        self.q_norm = nn.RMSNorm(self.head_dim, eps=1e-5)
+        self.k_norm = nn.RMSNorm(self.head_dim, eps=1e-5)
+
     def forward(
         self,
         x: torch.Tensor,
@@ -214,6 +218,9 @@ class Attention(nn.Module):
         xq = xq.view(bsz, seqlen, self.n_head, self.head_dim)
         xk = xk.view(bsz, seqlen, self.n_kv_head, self.head_dim)
         xv = xv.view(bsz, seqlen, self.n_kv_head, self.head_dim)
+
+        xq = self.q_norm(xq)
+        xk = self.k_norm(xk)
 
         # this part is modified from LLaMAGen
         if freqs_cis is not None:

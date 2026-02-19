@@ -1,0 +1,120 @@
+
+experiment:
+    project: "dynamic_tokenizer_generation"
+    name: "gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr"
+    # output_dir: "checkpoints/datacheck/debug"
+    output_dir: "checkpoints/generator/gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr"
+    max_train_examples: 2_562_3340
+    save_every: 10_000
+    eval_every: 50_000
+    generate_every: 1000
+    log_every: 50
+    log_grad_norm_every: 1_000
+    resume: True
+    
+
+tokenizer:
+    type: "quadtok"
+    tokenizer_ckpt_dir: "checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods/checkpoint-400000/ema_model/pytorch_model.bin"
+    vae_embed_dim: 8 # keep the same with "token_size" in "vq_model"
+
+
+model:
+    type: "quadtok"
+    grad_checkpointing: True
+    vq_model:
+      quantize_mode: vq
+      # vit arch
+      vit_enc_model_size: "small"
+      vit_dec_model_size: "large"
+      vit_enc_patch_size: 16
+      vit_dec_patch_size: 16
+      decoder_token_size: 256
+      codebook_size: 16384
+      use_l2_norm: true
+      commitment_cost: 0.25
+      token_size: 8
+    selector:
+      token_size: 8
+      num_patch_side_list: [1, 2, 4, 8, 16] 
+      patch_size_list: [16, 16, 16, 16, 16]
+    
+
+    generator_type: "gpt-quadtree"
+
+    generator:
+        model_size: "base" # 300M, 700M, 1B
+        patch_size: 1
+
+        image_size: 256
+        num_patch_side_list: [1, 2, 4, 8, 16]
+        patch_size_list: [16, 16, 16, 16, 16]
+        guaranteed_depth: 3  # All nodes with lod <= 3 are guaranteed to exist
+
+        class_num: 1000
+        condition_num_classes: 1000
+
+        mask_ratio_min: 0.7
+        buffer_size: 1
+
+        attn_dropout: 0.0
+        label_drop_prob: 0.1
+        token_drop_prob: 0.1
+        resid_drop_prob: 0.1
+        ffn_drop_prob: 0.1
+
+        guidance_decay: power-cosine
+        guidance_scale: 6.9
+        guidance_scale_pow: 1.5
+        randomize_temperature: 1.0
+        softmax_temperature_annealing: False
+
+
+losses:
+    model_embed_dim: 768
+    diffloss_d: 8
+    diffloss_w: 1280
+    expand_loss_weight: 1.0
+
+
+dataset:
+    type: "pre_tokenized"
+    params:
+        shards_path: "pipe:rclone cat hoss:jianglihan/data/imagenet-pretokenized/vq-ts8-16kcodebook-2lods/imagenet-train-{000000..000141}.tar"
+        # shards_path: "pipe:rclone cat hoss:jianglihan/data/imagenet-pretokenized/vq-ts12-4096codebook-base/imagenet-train-{000000..000141}.tar"
+        num_workers_per_gpu: 2
+     # unused in pre_tokenized dataset
+    preprocessing:
+        resize_shorter_edge: 256
+        crop_size: 256
+        random_crop: True
+        random_flip: True
+        res_ratio_filtering: True
+
+optimizer:
+    name: adamw 
+    params:
+        learning_rate: 4e-4
+        beta1: 0.9
+        beta2: 0.95
+        weight_decay: 0.05
+
+
+lr_scheduler:
+    scheduler: "cosine"
+    params:
+        learning_rate: ${optimizer.params.learning_rate}
+        warmup_steps: 50_000
+        end_lr: 2e-5
+
+
+training:
+    gradient_accumulation_steps: 1
+    per_gpu_batch_size: 64 # 16 GPU, total batch size 1024
+    mixed_precision: "bf16"
+    enable_tf32: True
+    enable_wandb: True
+    use_ema: True
+    seed: 42
+    max_train_steps: 400_000
+    max_grad_norm: 1.0

@@ -1208,6 +1208,52 @@ class QuadTokDecoder(nn.Module):
             previous_feature_map = final_lod_feature_map
             
         return previous_feature_map
+
+    def get_causal_mask(self, ordered_nodes, lod_levels, patch_indices, seq_len, device):
+        # Build causal mask based on LOD structure
+        # lod3 tokens can see each other; lod4 tokens can only see siblings (same parent)
+        lod_levels_tensor = torch.tensor(lod_levels, device=device)
+        patch_indices_tensor = torch.tensor(patch_indices, device=device)
+        
+        # Create attention mask: (seq_len, seq_len), True means CAN attend
+        attn_mask = torch.zeros(seq_len, seq_len, dtype=torch.bool, device=device)
+        
+        # lod3 indices (all lod3 tokens can see each other)
+        lod3_mask = (lod_levels_tensor == 3)
+        num_lod3 = lod3_mask.sum().item()
+        
+        # lod3 tokens can see all lod3 tokens (bidirectional within lod3)
+        attn_mask[:num_lod3, :num_lod3] = True
+        
+        # For lod4 tokens, compute parent index to determine siblings
+        # lod4 patches_per_side = 16, lod3 patches_per_side = 8
+        lod4_patches_per_side = 16
+        lod3_patches_per_side = 8
+        
+        # lod4 tokens can see lod3 tokens
+        attn_mask[num_lod3:, :num_lod3] = True
+        
+        # For lod4-to-lod4: only siblings (same parent) can see each other
+        lod4_indices = patch_indices_tensor[num_lod3:]  # lod4 patch indices
+        num_lod4 = len(lod4_indices)
+        
+        if num_lod4 > 0:
+            # Compute parent index for each lod4 token
+            lod4_rows = lod4_indices // lod4_patches_per_side
+            lod4_cols = lod4_indices % lod4_patches_per_side
+            parent_rows = lod4_rows // 2
+            parent_cols = lod4_cols // 2
+            parent_indices = parent_rows * lod3_patches_per_side + parent_cols
+            
+            # Siblings have the same parent index
+            # (num_lod4, num_lod4) mask where True if same parent
+            sibling_mask = parent_indices.unsqueeze(0) == parent_indices.unsqueeze(1)
+            attn_mask[num_lod3:, num_lod3:] = sibling_mask
+        
+        # Convert to attention mask format (True = masked out, False = attend)
+        # PyTorch attention expects: additive mask where -inf means masked out
+        # Or bool mask where True means masked out (depending on usage)
+        return ~attn_mask  # Invert: True means CANNOT attend
     
     def update_features_in_tree(
         self,
@@ -1221,13 +1267,17 @@ class QuadTokDecoder(nn.Module):
 
     def _forward_reconstruction(self, z_quantized, ordered_nodes):
         batch_size, seq_len, _ = z_quantized.shape
+        device = z_quantized.device
         z_quantized = self.decoder_embed(z_quantized)
         # ordered_nodes = self._get_ordered_nodes(tree_structure)
 
         lod_embeddings = []
+        lod_levels = []
+        patch_indices = []
         for node in ordered_nodes:
             lod_idx, index = node.lod_level, node.patch_index
-            device = self.token_incides_embedding_dict[str(lod_idx)].weight.device
+            lod_levels.append(lod_idx)
+            patch_indices.append(index)
             index_tensor = torch.tensor([index], dtype=torch.long, device=device)
             embedding = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)
             lod_embeddings.append(embedding)
@@ -1237,10 +1287,11 @@ class QuadTokDecoder(nn.Module):
 
         x = z_quantized + flat_token_sequence + self.latent_token_positional_embedding[:seq_len]
 
+        causal_mask = self.get_causal_mask(ordered_nodes, lod_levels, patch_indices, seq_len, device)
         x = self.ln_pre(x)
         x = x.permute(1, 0, 2)  # NLD -> LND
         for i in range(self.num_layers):
-            x = self.transformer[i](x)
+            x = self.transformer[i](x, attention_mask=causal_mask)
         x = x.permute(1, 0, 2)  # LND -> NLD
         x = self.ln_post(x)
         # x = self.attn_out(x)
@@ -1493,13 +1544,71 @@ class QuadTokSelctor(nn.Module):
         # (B, num_total_nodes, D)
         return flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
 
+    def get_causal_mask(self, ordered_nodes, lod_levels, patch_indices, tree_seq_len, device):
+        # Build causal mask based on LOD structure
+        # lod3 tokens can see each other; lod4 tokens can only see siblings (same parent)
+        lod_levels_tensor = torch.tensor(lod_levels, device=device)
+        patch_indices_tensor = torch.tensor(patch_indices, device=device)
+        
+        # Create attention mask: (seq_len, seq_len), True means CAN attend
+        tree_attn_mask = torch.zeros(tree_seq_len, tree_seq_len, dtype=torch.bool, device=device)
+        
+        # lod3 indices (all lod3 tokens can see each other)
+        lod3_mask = (lod_levels_tensor == 3)
+        num_lod3 = lod3_mask.sum().item()
+        
+        # lod3 tokens can see all lod3 tokens (bidirectional within lod3)
+        tree_attn_mask[:num_lod3, :num_lod3] = True
+        
+        # For lod4 tokens, compute parent index to determine siblings
+        # lod4 patches_per_side = 16, lod3 patches_per_side = 8
+        lod4_patches_per_side = 16
+        lod3_patches_per_side = 8
+        
+        # lod4 tokens can see lod3 tokens
+        tree_attn_mask[num_lod3:, :num_lod3] = True
+        
+        # For lod4-to-lod4: only siblings (same parent) can see each other
+        lod4_indices = patch_indices_tensor[num_lod3:]  # lod4 patch indices
+        num_lod4 = len(lod4_indices)
+        
+        if num_lod4 > 0:
+            # Compute parent index for each lod4 token
+            lod4_rows = lod4_indices // lod4_patches_per_side
+            lod4_cols = lod4_indices % lod4_patches_per_side
+            parent_rows = lod4_rows // 2
+            parent_cols = lod4_cols // 2
+            parent_indices = parent_rows * lod3_patches_per_side + parent_cols
+            
+            # Siblings have the same parent index
+            # (num_lod4, num_lod4) mask where True if same parent
+            sibling_mask = parent_indices.unsqueeze(0) == parent_indices.unsqueeze(1)
+            tree_attn_mask[num_lod3:, num_lod3:] = sibling_mask
+        
+        # Convert to attention mask format (True = masked out, False = attend)
+        # PyTorch attention expects: additive mask where -inf means masked out
+        # Or bool mask where True means masked out (depending on usage)
+        num_latent_tokens = 256
+        total_len = num_latent_tokens + tree_seq_len
+        full_mask = torch.zeros(total_len, total_len, dtype=torch.bool, device=device)
+        full_mask[:num_latent_tokens, :num_latent_tokens] = True
+        full_mask[num_latent_tokens:, :num_latent_tokens] = True
+        full_mask[num_latent_tokens:, num_latent_tokens:] = tree_attn_mask
+
+        full_mask[:num_latent_tokens, num_latent_tokens:] = False
+        return ~full_mask
+
     def _forward_reconstruction(self, latent_feats, ordered_nodes):
         batch_size = latent_feats.shape[0]
         # ordered_nodes = self._get_ordered_nodes(tree_structure)
 
         lod_embeddings = []
+        lod_levels = []
+        patch_indices = []
         for node in ordered_nodes:
             lod_idx, index = node.lod_level, node.patch_index
+            lod_levels.append(lod_idx)
+            patch_indices.append(index)
             device = self.token_incides_embedding_dict[str(lod_idx)].weight.device
             index_tensor = torch.tensor([index], dtype=torch.long, device=device)
             embedding = self.token_incides_embedding_dict[str(lod_idx)](index_tensor)
@@ -1512,26 +1621,19 @@ class QuadTokSelctor(nn.Module):
         flat_token_sequence += self.latent_token_positional_embedding[:seq_len]
         x = torch.cat([latent_feats, flat_token_sequence], dim=1)
 
+        causal_mask = self.get_causal_mask(ordered_nodes, lod_levels, patch_indices, seq_len, device)
+
         x = self.ln_pre(x)
         x = x.permute(1, 0, 2)  # NLD -> LND
         for i in range(self.num_layers):
-            x = self.transformer[i](x)
+            x = self.transformer[i](x, attention_mask=causal_mask)
         x = x.permute(1, 0, 2)  # LND -> NLD
-        if self.repa_param is not None:
-            align_x = x[:, seq_len:]
-            x = x[:, -seq_len:]
-            x = self.ln_post(x)
-            x = self.out_proj(x)
+        x = x[:, -seq_len:]
+        x = self.ln_post(x)
+        x = self.out_proj(x)
 
-            x = x.permute(0, 2, 1).unsqueeze(2).contiguous()
-            return x, self.out_proj_align(self.ln_align(align_x))
-        else:
-            x = x[:, -seq_len:]
-            x = self.ln_post(x)
-            x = self.out_proj(x)
-
-            x = x.permute(0, 2, 1).unsqueeze(2).contiguous()
-            return x
+        x = x.permute(0, 2, 1).unsqueeze(2).contiguous()
+        return x
     
     def _forward_policy(self, latent_feats, attn_padding_mask):
         batch_size = latent_feats.shape[0]

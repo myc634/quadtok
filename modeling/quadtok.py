@@ -125,7 +125,7 @@ class QuadTok(BaseModel):
     def _forward_reconstruction(self, x):
         latent_feats = self.encode(x)
         # guaranteed_depth=1, expansion_probs=[0.8, 0.7, 0.6, 0.5] guaranteed_depth=2, expansion_probs=[0.7, 0.6, 0.5]
-        tree_structure = build_probabilistic_quadtree(self.num_patch_side_list, guaranteed_depth=3, expansion_probs=[0.5])
+        tree_structure = build_probabilistic_quadtree(self.num_patch_side_list, guaranteed_depth=3, expansion_probs=[0.75])
         ori_ordered_nodes = self._get_ordered_nodes(tree_structure)
         ordered_nodes = []
         for node in ori_ordered_nodes:
