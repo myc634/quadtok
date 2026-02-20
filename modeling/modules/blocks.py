@@ -850,8 +850,8 @@ class QuadTokDecoder(nn.Module):
                 self.token_incides_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.width)
 
         scale = self.width ** -0.5
-        self.latent_token_positional_embedding = nn.Parameter(
-            scale * torch.randn(self.max_seq_len, self.width))
+        # self.latent_token_positional_embedding = nn.Parameter(
+        #     scale * torch.randn(self.max_seq_len, self.width))
 
         self.ln_pre = nn.LayerNorm(self.width)
         self.transformer = nn.ModuleList()
@@ -932,8 +932,8 @@ class QuadTokDecoder(nn.Module):
         return flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
 
     def hierarchical_latent_decode(self, ordered_nodes, batch_size):
-        device = self.latent_token_positional_embedding.device
-        dtype = self.latent_token_positional_embedding.dtype
+        device = ordered_nodes[0].node_feature.device
+        dtype = ordered_nodes[0].node_feature.dtype
         # ordered_nodes = self._get_ordered_nodes(tree_structure)
         nodes_by_lod = {i: [] for i in range(self.num_lod)}
         for node in ordered_nodes:
@@ -1285,7 +1285,7 @@ class QuadTokDecoder(nn.Module):
         flat_token_sequence = torch.cat(lod_embeddings, dim=0)
         flat_token_sequence = flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
 
-        x = z_quantized + flat_token_sequence + self.latent_token_positional_embedding[:seq_len]
+        x = z_quantized + flat_token_sequence #+ self.latent_token_positional_embedding[:seq_len]
 
         causal_mask = self.get_causal_mask(ordered_nodes, lod_levels, patch_indices, seq_len, device)
         x = self.ln_pre(x)
@@ -1495,8 +1495,8 @@ class QuadTokSelctor(nn.Module):
                 self.token_incides_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.width)
 
         scale = self.width ** -0.5
-        self.latent_token_positional_embedding = nn.Parameter(
-            scale * torch.randn(self.max_seq_len, self.width))
+        # self.latent_token_positional_embedding = nn.Parameter(
+        #     scale * torch.randn(self.max_seq_len, self.width))
 
         self.ln_pre = nn.LayerNorm(self.width)
         self.transformer = nn.ModuleList()
@@ -1618,7 +1618,7 @@ class QuadTokSelctor(nn.Module):
         flat_token_sequence = flat_token_sequence.unsqueeze(0).repeat(batch_size, 1, 1)
 
         seq_len = flat_token_sequence.shape[1]
-        flat_token_sequence += self.latent_token_positional_embedding[:seq_len]
+        # flat_token_sequence += self.latent_token_positional_embedding[:seq_len]
         x = torch.cat([latent_feats, flat_token_sequence], dim=1)
 
         causal_mask = self.get_causal_mask(ordered_nodes, lod_levels, patch_indices, seq_len, device)

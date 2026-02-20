@@ -352,7 +352,7 @@ class ReconstructionLoss_Single_Stage(ReconstructionLoss_Stage2):
         reconstruction_loss *= self.reconstruction_weight
 
         # Compute perceptual loss.
-        perceptual_loss = self.perceptual_loss(inputs, reconstructions).mean()
+        perceptual_loss = self.perceptual_loss(inputs.contiguous(), reconstructions.contiguous()).mean()
 
         # Compute discriminator loss.
         generator_loss = torch.zeros((), device=inputs.device)
