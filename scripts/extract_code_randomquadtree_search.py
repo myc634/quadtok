@@ -25,9 +25,77 @@ from modeling.utils import (
     build_quadtree, 
     get_ordered_nodes, 
     build_probabilistic_quadtree,
-    tree_to_decision_nodes_dict
+    tree_to_decision_nodes_dict,
+    _get_nodes_at_level,
+    QuadTreeNode,
+    _create_and_assign_children
 )
 
+import torch.nn.functional as F
+import torch.nn as nn
+from copy import deepcopy
+
+def coarse_split_permutation(coarse_hw=(4,4), split_hw=(2,2)):
+    Hc, Wc = coarse_hw
+    Hs, Ws = split_hw
+    Hf, Wf = Hc*Hs, Wc*Ws
+    perm = []
+    for cy in range(Hc):
+        for cx in range(Wc):
+            for sy in range(Hs):
+                for sx in range(Ws):
+                    fy = cy*Hs + sy
+                    fx = cx*Ws + sx
+                    perm.append(fy*Wf + fx)
+    return perm
+
+def inverse_permutation(perm):
+    inv = [0] * len(perm)
+    for i, p in enumerate(perm):
+        inv[p] = i
+    return inv
+
+def _build_tree_from_node_mask(base_tree, target_lod, max_lod, patches_per_side_list, target_nodes, node_mask):
+    """
+    Build a tree by expanding nodes at target_lod where node_mask is True.
+    
+    Args:
+        base_tree: Base tree that stops at target_lod
+        target_lod: LOD level of nodes to potentially expand
+        max_lod: Maximum LOD to expand to
+        patches_per_side_list: List of patches per side for each LOD
+        target_nodes: List of nodes at target_lod
+        node_mask: Boolean mask of shape [num_target_nodes] indicating which nodes to expand
+    
+    Returns:
+        Modified tree with nodes expanded according to mask
+    """
+    # Create a set of patch indices to expand for faster lookup
+    expand_patch_indices = {
+        target_nodes[i].patch_index 
+        for i in range(len(target_nodes)) 
+        if node_mask[target_nodes[i].patch_index]
+    }
+    
+    def _copy_and_expand(node):
+        """Recursively copy tree and expand nodes where mask is True"""
+        new_node = QuadTreeNode(node.lod_level, node.patch_index)
+        
+        # If this is a target node and should be expanded
+        if node.lod_level == target_lod and node.patch_index in expand_patch_indices:
+            # Expand this node
+            if node.lod_level < max_lod:
+                _create_and_assign_children(new_node, patches_per_side_list)
+        elif node.children:
+            # Otherwise, copy children recursively
+            for child in node.children:
+                new_child = _copy_and_expand(child)
+                new_node.children.append(new_child)
+        
+        return new_node
+    
+    # Copy the tree recursively starting from root
+    return _copy_and_expand(base_tree)
 
 def process_tree_for_saving(tree):
     """Convert tree dict to serializable format."""
@@ -150,69 +218,122 @@ def main(args):
 
         images = images.flatten(0, 1)  
         # Generate random quadtree for each image in the batch
-        root_list = []
-        for _ in range(num_aug):
-            tree_root = build_probabilistic_quadtree(
-                model.num_patch_side_list,
-                guaranteed_depth=guaranteed_depth,
-                expansion_probs=expansion_probs
+
+        base_tree = build_quadtree(model.num_patch_side_list[:-1])
+        target_nodes = _get_nodes_at_level(base_tree, 3)
+        target_permutation = coarse_split_permutation()
+        target_inverse_permutation = inverse_permutation(target_permutation)
+        new_target_nodes = [target_nodes[i] for i in target_inverse_permutation]
+        
+        random_patch_mask = torch.zeros(64, dtype=torch.bool)
+        # fill in 32 True values randomly
+        random_patch_mask[random.sample(range(64), 32)] = True
+
+        masked_tree = _build_tree_from_node_mask(
+            base_tree, 
+            target_lod=3, 
+            max_lod=4, 
+            patches_per_side_list=model.num_patch_side_list,
+            target_nodes=new_target_nodes,
+            node_mask=random_patch_mask
+        )
+
+        masked_tree_reversed = _build_tree_from_node_mask(
+            base_tree, 
+            target_lod=3, 
+            max_lod=4, 
+            patches_per_side_list=model.num_patch_side_list,
+            target_nodes=new_target_nodes,
+            node_mask=(~random_patch_mask)
+        )
+
+        ordered_nodes = model._get_ordered_nodes(masked_tree)
+        ordered_nodes = [n for n in ordered_nodes if n.lod_level >= 3]
+        ordered_nodes_reversed = model._get_ordered_nodes(masked_tree_reversed)
+        ordered_nodes_reversed = [n for n in ordered_nodes_reversed if n.lod_level >= 3]
+        
+        image_latent = model.encode(images)
+        node_list = [deepcopy(ordered_nodes) for _ in range(images.shape[0])]
+        node_list.extend([deepcopy(ordered_nodes_reversed) for _ in range(images.shape[0])])
+        z_batch = model.selector._forward_optimize(image_latent.repeat(2, 1, 1), node_list)
+        _, result_dict = model.quantize(z_batch)
+        token_indices = result_dict['min_encoding_indices']
+        embeds = model.quantize.get_codebook_entry(token_indices.squeeze().long().flatten()).reshape(images.shape[0] * 2, -1, 8)
+        reconstructed_images = model.decoder._forward_optimize(embeds, node_list)
+        reconstructed_images = torch.clamp(reconstructed_images, 0.0, 1.0)
+        mse_loss = F.mse_loss(images,  reconstructed_images[:images.shape[0]], reduction='none').sum(1)
+        mse_loss_reversed = F.mse_loss(images, reconstructed_images[images.shape[0]:], reduction='none').sum(1)
+
+        patch_size = 32
+        pooling_layer = nn.AvgPool2d(kernel_size=patch_size, stride=patch_size)
+        patch_bin_list = []
+        k = random.randint(32, 64)
+        for batch_idx in range(images.shape[0]):
+            original_loss_diff = (mse_loss_reversed[batch_idx] - mse_loss[batch_idx])
+            patch_loss_diff = pooling_layer(original_loss_diff.unsqueeze(0).unsqueeze(0))[0,0]
+            random_patch_mask_int = random_patch_mask.int()
+            random_patch_mask_int[~random_patch_mask] = -1
+            diff_patch_map = (patch_loss_diff) * random_patch_mask_int.reshape(8, 8).to(patch_loss_diff.device)
+
+            flat_diff = diff_patch_map.flatten()
+            sorted_vals, sorted_idx = torch.sort(flat_diff, descending=True)
+            threshold = sorted_vals[k-1]
+            threshold = 0.0015
+
+            patch_bin = (diff_patch_map >= threshold).to(diff_patch_map.dtype)
+            patch_bin_list.append(patch_bin)
+
+        all_search_nodes = []
+        for patch_bin_mask in patch_bin_list:
+            search_tree = _build_tree_from_node_mask(
+                base_tree, 
+                target_lod=3, 
+                max_lod=4, 
+                patches_per_side_list=model.num_patch_side_list,
+                target_nodes=new_target_nodes,
+                node_mask=patch_bin_mask.flatten().bool()
             )
-            root_list.append(tree_root)
-            # final_tree = tree_to_decision_nodes_dict(tree_root, model.num_lod)
-            # tree_list.append(final_tree)
+            search_nodes = model._get_ordered_nodes(search_tree)
+            search_nodes = [n for n in search_nodes if n.lod_level >= 3]
+            all_search_nodes.append(search_nodes)
 
         with torch.no_grad():
-            # Encode images
-            image_latent = model.encode(images)
+            z_batch_search = model.selector._forward_optimize(image_latent, all_search_nodes)
+            _, result_dict_search = model.quantize(z_batch_search)
+            code_indices = result_dict_search['min_encoding_indices'][:, 0]
+            '''embeds_search = model.quantize.get_codebook_entry(code_indices.squeeze().long().flatten()).reshape(images.shape[0], -1, 8)
+            reconstructed_images_search = model.decoder._forward_optimize(embeds_search, all_search_nodes)
+            reconstructed_images_search = torch.clamp(reconstructed_images_search, 0.0, 1.0)'''
 
         for aug_idx in range(num_aug):
-            batch_image_latent = image_latent[aug_idx].unsqueeze(0)
-            batch_tree = root_list[aug_idx]
-            ori_ordered_nodes = model._get_ordered_nodes(batch_tree)
-            ordered_nodes = []
-            for node in ori_ordered_nodes:
-                if node.lod_level >= 3:
-                    ordered_nodes.append(node)
-            # Get tokens using the random quadtrees
-            z_batch = model.selector._forward_reconstruction(batch_image_latent, ordered_nodes)
-
-            _, result_dict = model.quantize(z_batch)
-            code_incides = result_dict['min_encoding_indices'].squeeze()
-            token_num += code_incides.shape[0]
             base_filename = image_key[0] + f"_{aug_idx}"
-            
-            final_tree = tree_to_decision_nodes_dict(batch_tree, model.num_lod)
-            
-            # Build parent index array over the token sequence
-            # The latent sequence order matches the order used in selector._forward_optimize
-            lod_indices, patch_incides = [], []
 
-            for lod_idx, nodes in final_tree.items():
-                if lod_idx >= 3:
-                    for node in nodes:
-                        lod_indices.append(node.lod_level)
-                        patch_incides.append(node.patch_index)
-            
+            cur_code_indices = code_indices[aug_idx]
+            cur_node_list = all_search_nodes[aug_idx]
+            cur_length = len(cur_node_list)
+            cur_code_indices = cur_code_indices[:cur_length]
+            lod_indices, patch_incides = [], []
+            for node in cur_node_list:
+                lod_indices.append(node.lod_level)
+                patch_incides.append(node.patch_index)
+
+
             if batch_size > 1:
                 class_id_data = class_id[i].item()
             else:
                 class_id_data = class_id.item() if hasattr(class_id, 'item') else int(class_id)
-            assert code_incides.shape[0] == len(lod_indices) == len(patch_incides)
+
+            assert cur_code_indices.shape[0] == len(lod_indices) == len(patch_incides)
             sample = {
                 "__key__": base_filename,
-                "code_indices.npy": code_incides.cpu().numpy(),
+                "code_indices.npy": cur_code_indices.cpu().numpy(),
                 "lod_indices.npy": np.array(lod_indices),
                 "patch_indices.npy": np.array(patch_incides),
                 "cls": str(class_id_data)
             }
             all_sample_list.append(sample)
-
             num_samples += 1
-        breakpoint()
-        
-        # print(f"Saved {batch_idx} samples")
-        # if num_samples == 100:
-        #     break
+
     random.shuffle(all_sample_list)
     # Use TarWriter to create tar file
     if args.crop_range == 1.1:

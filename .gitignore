@@ -16,3 +16,4 @@ pretrained_weight/
 visualization/
 logs/
 extract_token_log/
+tmp_imagenet_files/*
