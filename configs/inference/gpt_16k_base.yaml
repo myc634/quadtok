@@ -1,7 +1,7 @@
 experiment:
   project: dynamic_tokenizer_generation
-  name: gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr
-  output_dir: checkpoints/generator/gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr
+  name: gpt_quadtree_base_tokenizerv4
+  output_dir: checkpoints/generator/gpt_quadtree_base_tokenizerv4
   max_train_examples: 25623340
   save_every: 10000
   eval_every: 50000
@@ -9,10 +9,10 @@ experiment:
   log_every: 50
   log_grad_norm_every: 1000
   resume: true
-  logging_dir: checkpoints/generator/gpt_quadtree_base_16kcodebook_2lod_base_decay2x_4e-4lr/logs
+  logging_dir: checkpoints/generator/gpt_quadtree_base_tokenizerv4/logs
 tokenizer:
   type: quadtok
-  tokenizer_ckpt_dir: checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods/checkpoint-400000/ema_model/pytorch_model.bin
+  tokenizer_ckpt_dir: checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods-causal-selector-wope/save-checkpoint-300000/ema_model/pytorch_model.bin
   vae_embed_dim: 8
 model:
   type: quadtok
@@ -70,8 +70,8 @@ model:
     resid_drop_prob: 0.1
     ffn_drop_prob: 0.1
     guidance_decay: power-cosine
-    guidance_scale: 6.9
-    guidance_scale_pow: 1.5
+    guidance_scale: 10.5
+    guidance_scale_pow: 1.1
     randomize_temperature: 1.0
     softmax_temperature_annealing: false
 losses:
@@ -82,7 +82,7 @@ losses:
 dataset:
   type: pre_tokenized
   params:
-    shards_path: pipe:rclone cat hoss:jianglihan/data/imagenet-pretokenized/vq-ts8-16kcodebook-2lods/imagenet-train-{000000..000141}.tar
+    shards_path: pipe:rclone cat hoss:jianglihan/data/imagenet-pretokenized/vq-ts12-4kcodebook-2lods-causal-selector-wope/imagenet-train-{000000..000141}.tar
     num_workers_per_gpu: 2
   preprocessing:
     resize_shorter_edge: 256
@@ -105,7 +105,7 @@ lr_scheduler:
     end_lr: 2.0e-05
 training:
   gradient_accumulation_steps: 1
-  per_gpu_batch_size: 64
+  per_gpu_batch_size: 32
   mixed_precision: bf16
   enable_tf32: true
   enable_wandb: true

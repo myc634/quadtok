@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH -p si
 #SBATCH -N 1                    # 申请 1 个节点
-#SBATCH --gres=gpu:8            # 申请 6 张 GPU
+#SBATCH --gres=gpu:8            # 申请 8 张 GPU
 #SBATCH --ntasks-per-node=1     # 每个节点启 1 个任务 (即 1 个 accelerate 实例)
 #SBATCH --cpus-per-task=32      # CPU 核心数 (单机数据加载压力大，建议给足)
-#SBATCH -J infer         # 任务名称
-#SBATCH -o logs/inference_generator_%j.out # 日志输出
+#SBATCH -J base         # 任务名称
+#SBATCH -o logs/evaltok_vq_%j.out # 日志输出
 
 source /mnt/petrelfs/jianglihan/miniforge3/bin/activate 1d
 
@@ -31,11 +31,8 @@ launcher="accelerate launch \
   --main_process_ip=$MASTER_ADDR \
   --main_process_port=$MASTER_PORT \
   --mixed_precision=bf16 \
-  scripts/inference_generator.py \
-  --config configs/inference/gpt_16k_base.yaml \
-  --num_samples 50000 \
-  --batch_size 64 \
-  --checkpoint checkpoints/generator/gpt_quadtree_base_tokenizerv4/checkpoint-170000/ema_model/pytorch_model.bin"
+  scripts/eval_tokenizer.py \
+  --work_dir checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods-causal-selector-wope"
 
 echo "Command to run:"
 echo "$launcher"

@@ -1,4 +1,4 @@
-srun --jobid=7453922 /bin/bash
+srun --jobid=7457685 /bin/bash
 source ~/.bashrc
 nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.total,memory.used,memory.free --format=csv -l 1 > /mnt/petrelfs/jianglihan/my_code/quadtok/gpu.log &
 
@@ -6,7 +6,7 @@ PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_tokenizer.py config=
 
 PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_tokenizer.py config=configs/training/single_stage/quadtok_ss256_vae_repa.yaml
 
-TORCH_DISTRIBUTED_DEBUG=DETAIL CUDA_LAUNCH_BLOCKING=1 PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_generator.py config=configs/training/generator/gpt_quadtree_large.yaml
+TORCH_DISTRIBUTED_DEBUG=DETAIL CUDA_LAUNCH_BLOCKING=1 PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_generator.py config=configs/training/generator/gpt_quadtree_base.yaml
 
 CUDA_LAUNCH_BLOCKING=1 PYTHONUNBUFFERED=1 WANDB_MODE=disabled python scripts/train_generator.py config=configs/training/generator/gpt_quadtree_fixtree.yaml
 
@@ -106,14 +106,14 @@ accelerate launch scripts/inference_generator.py \
     --guidance_scale 3.0 \
     --guidance_decay constant
 
-python scripts/extract_code_randomquadtree.py \
-    --config_dir checkpoints/quadtok_sl256_vq_ts12-4kcodebook-2lods/config.yaml \
+python scripts/extract_code_searchquadtree.py \
+    --config_dir checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods-causal-selector-wope/config.yaml \
     --output_dir extract_token_log \
     --shards_index 0 \
     --crop_range 1.05 \
     --expansion_probs 0.5 \
-    --tokenizer_weight checkpoints/quadtok_sl256_vq_ts12-4kcodebook-2lods/checkpoint-350000/ema_model/pytorch_model.bin \
-    --output_tar_path /mnt/shared-storage-user/jianglihan/myc/code/tmp_imagenet_files
+    --tokenizer_weight checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods-causal-selector-wope/checkpoint-225000/ema_model/pytorch_model.bin \
+    --output_tar_path /mnt/petrelfs/jianglihan/my_code/tmp_imagenet_codes/debug
 
 rclone  copy --progress --transfers 200 --checkers 200 --links /mnt/petrelfs/jianglihan/my_code/tmp_imagenet_codes/debug/imagenet-train-000000.tar hoss:jianglihan/data/imagenet-debug
 

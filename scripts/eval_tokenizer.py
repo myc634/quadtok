@@ -3,7 +3,7 @@
 Usage:
 
 python scripts/eval_tokenizer.py \
-    --work_dir checkpoints/quadtok_sl256_vq_ts12-4kcodebook-2lods 
+    --work_dir checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods-causal-selector-wope
 
 # For Tokenizer Models
 # Use `--length` to specify the number of tokens to generate.
@@ -196,7 +196,7 @@ def main(args):
     
     # Get quadtree parameters from args or use defaults
     guaranteed_depth = 3
-    expansion_probs = [0.5]
+    expansion_probs = [0.75]
     if isinstance(expansion_probs, str):
         # Parse from string like "0.7,0.4"
         expansion_probs = [float(x) for x in expansion_probs.split(',')]
@@ -209,7 +209,7 @@ def main(args):
         
         # Build probabilistic quadtree (same as extract_code_randomquadtree.py)
         tree_structure = build_probabilistic_quadtree(
-            model.num_patch_side_list, 
+            accelerator.unwrap_model(model).num_patch_side_list, 
             guaranteed_depth=guaranteed_depth, 
             expansion_probs=expansion_probs
         )
@@ -229,44 +229,12 @@ def main(args):
         
         # Quantize
         model_dict = None
-        if model.quantize_mode == "vae":
+        if accelerator.unwrap_model(model).quantize_mode == "vae":
             z_quantized = accelerator.unwrap_model(model).quantize(z).sample()
-        elif model.quantize_mode == "vq":
+        elif accelerator.unwrap_model(model).quantize_mode == "vq":
             z_quantized, model_dict = accelerator.unwrap_model(model).quantize(z)
         else:
             raise ValueError(f"Unknown quantize_mode: {model.quantize_mode}")
-        
-        # Statistics for unique tokens per LOD (vectorized for speed)
-        if model.quantize_mode == "vq" and model_dict is not None:
-            # Get code_indices from model_dict
-            code_indices = model_dict["min_encoding_indices"]  # (batch_size, seq_len) or (seq_len,)
-            if code_indices.dim() == 1:
-                code_indices = code_indices.unsqueeze(0)  # Add batch dimension if needed
-            
-            # Flatten code_indices
-            code_indices_flat = code_indices.flatten()  # (num_tokens,)
-            
-            # Expand lod_levels to match code_indices shape
-            # lod_levels shape: (seq_len,), code_indices shape: (batch_size, seq_len)
-            batch_size = code_indices.shape[0]
-            seq_len = code_indices.shape[1]
-            # Repeat lod_levels for each sample in the batch
-            lod_levels_flat = lod_levels.repeat(batch_size)  # (batch_size * seq_len,)
-            
-            # Ensure same length (should be equal, but just in case)
-            assert code_indices_flat.shape[0] == lod_levels_flat.shape[0], \
-                f"Shape mismatch: code_indices_flat {code_indices_flat.shape}, lod_levels_flat {lod_levels_flat.shape}"
-            
-            # Group by LOD and get unique tokens for each LOD using vectorized operations
-            if code_indices_flat.numel() > 0:
-                unique_lods = torch.unique(lod_levels_flat)
-                for lod in unique_lods.cpu().tolist():
-                    lod_mask = lod_levels_flat == lod
-                    lod_tokens = code_indices_flat[lod_mask]
-                    unique_tokens = torch.unique(lod_tokens)
-                    lod_unique_tokens[int(lod)].update(unique_tokens.cpu().tolist())
-        if count == 1000:
-            breakpoint()
         # Decode using the same tree structure
         reconstructed_images = accelerator.unwrap_model(model).decode(
             z_quantized.permute(0, 3, 2, 1).squeeze(2).contiguous(), 
@@ -280,7 +248,7 @@ def main(args):
         image = torch.clamp(image, 0.0, 1.0)
         
         # Update evaluator
-        if model.quantize_mode == "vae":
+        if accelerator.unwrap_model(model).quantize_mode == "vae":
             evaluator.update(image, reconstructed_images, None)
         else:
             evaluator.update(image, reconstructed_images, model_dict["min_encoding_indices"])
@@ -300,8 +268,6 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--work_dir", type=str, default=None, help="Path to the checkpoint if you want to use a specific checkpoint")
-    parser.add_argument("--output_dir", type=str, default=None, help="Output directory")
-    parser.add_argument("--max_tree_depth", type=int, default=2, help="how many lod are used")
 
 
 

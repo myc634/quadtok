@@ -63,9 +63,9 @@ model:
         resid_drop_prob: 0.1
         ffn_drop_prob: 0.1
 
-        guidance_decay: "linear"
-        guidance_scale: 2.1
-        guidance_scale_pow: 1.5
+        guidance_decay: "power-cosine"
+        guidance_scale: 10.5
+        guidance_scale_pow: 1.1
         randomize_temperature: 1.0
         softmax_temperature_annealing: False
 

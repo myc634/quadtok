@@ -35,6 +35,7 @@ from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.nn.utils.rnn import pad_sequence
 import time
 import math
+from einops import rearrange
 
 def modulate(x, shift, scale):
     return x * (1 + scale) + shift
@@ -1019,7 +1020,7 @@ class QuadTokDecoder(nn.Module):
             
         return previous_feature_map
 
-    def hierarchical_latent_decode_batch(self, tree_structure_list, batch_size):
+    def hierarchical_latent_decode_batch(self, ordered_nodes_list, batch_size):
         """
         Batch version of hierarchical_latent_decode for multiple tree structures.
         All trees should have the same structure (same number of nodes at each LOD).
@@ -1031,71 +1032,68 @@ class QuadTokDecoder(nn.Module):
         Returns:
             Feature maps with shape (batch_size, C, H, W)
         """
-        device = self.latent_token_positional_embedding.device
-        dtype = self.latent_token_positional_embedding.dtype
+        device = ordered_nodes_list[0][0].node_feature.device #self.latent_token_positional_embedding.device
+        dtype = ordered_nodes_list[0][0].node_feature.dtype #self.latent_token_positional_embedding.dtype
 
         # Get ordered_nodes for all trees and organize by LOD
         all_nodes_by_lod = {lod_idx: [] for lod_idx in range(self.num_lod)}
-        for tree_structure in tree_structure_list:
-            ordered_nodes = []
-            for key, value in tree_structure.items():
-                ordered_nodes.extend(value)
-
+        for ordered_nodes in ordered_nodes_list:
             nodes_by_lod = {i: [] for i in range(self.num_lod)}
             for node in ordered_nodes:
                 nodes_by_lod[node.lod_level].append(node)
             for lod_idx in range(self.num_lod):
-                all_nodes_by_lod[lod_idx].append(nodes_by_lod[lod_idx])
+                if lod_idx >= 3:
+                    all_nodes_by_lod[lod_idx].append(nodes_by_lod[lod_idx])
         
 
         previous_feature_map = None
         for lod_idx in range(self.num_lod):
-            channels = self.decoder_channels[lod_idx]
-            patch_size = self.patch_size_list[lod_idx]
-            if lod_idx == 0:
-                upsampled_map = torch.zeros(batch_size, channels, patch_size, patch_size, device=device, dtype=dtype)
-            else:
-                upsampler = self.upsamplers[lod_idx - 1]
-                upsampled_map = upsampler(previous_feature_map)
-
-            current_lod_patch_canvas = torch.zeros(batch_size, channels, upsampled_map.shape[-2], upsampled_map.shape[-1], device=device, dtype=dtype)
-            # Process all trees for this LOD
-            nodes_in_lod_list = all_nodes_by_lod[lod_idx]
-            if any(nodes_in_lod_list):  # If any tree has nodes at this LOD
-                unpatch_fn = self.latent_unpatchers[str(lod_idx)]
+            if lod_idx >= 3:
+                channels = self.decoder_channels[lod_idx]
+                patch_size = self.patch_size_list[lod_idx]
                 num_patches_per_side = self.num_patch_side_list[lod_idx]
-                
-                # Process each tree in the batch
-                st_for_loop = time.time()
-                for tree_idx, nodes_in_lod in enumerate(nodes_in_lod_list):
-                    if nodes_in_lod:
-                        # Collect features for all nodes in this tree at this LOD
-                        features_list = [node.node_feature.squeeze(0) for node in nodes_in_lod]  # Remove batch dim
-                        features_tensor = torch.stack(features_list, dim=0)  # (num_nodes_in_lod, D)
-                        
-                        # Batch unpatch: (num_nodes_in_lod, C, patch_size, patch_size)
-                        unpatched_features = unpatch_fn(features_tensor)
-                        
-                        # Use vectorized scatter for better efficiency
-                        # Collect all patch indices and positions
-                        patch_indices = torch.tensor([node.patch_index for node in nodes_in_lod], dtype=torch.long, device=device)
-                        rows = patch_indices // num_patches_per_side
-                        cols = patch_indices % num_patches_per_side
-                        y_starts = rows * patch_size
-                        x_starts = cols * patch_size
-                        
-                        # Use scatter_patches for vectorized operation
-                        batch_coords = torch.full((len(nodes_in_lod),), tree_idx, dtype=torch.long, device=device)
-                        current_lod_patch_canvas = scatter_patches(
-                            current_lod_patch_canvas,
-                            unpatched_features.to(current_lod_patch_canvas.dtype),
-                            batch_coords,
-                            y_starts,
-                            x_starts,
-                            patch_size
-                        )
-            final_lod_feature_map = upsampled_map + current_lod_patch_canvas
-            previous_feature_map = final_lod_feature_map
+                if lod_idx == 3:
+                    upsampled_map = torch.zeros(batch_size, channels, patch_size * num_patches_per_side, patch_size * num_patches_per_side, device=device, dtype=dtype)
+                else:
+                    upsampler = self.upsamplers[str(lod_idx - 1)]
+                    upsampled_map = upsampler(previous_feature_map)
+
+                current_lod_patch_canvas = torch.zeros(batch_size, channels, upsampled_map.shape[-2], upsampled_map.shape[-1], device=device, dtype=dtype)
+                nodes_in_lod_list = all_nodes_by_lod[lod_idx]
+                if any(nodes_in_lod_list):  # If any tree has nodes at this LOD
+                    unpatch_fn = self.latent_unpatchers[str(lod_idx)]
+                    
+                    # Process each tree in the batch
+                    st_for_loop = time.time()
+                    for tree_idx, nodes_in_lod in enumerate(nodes_in_lod_list):
+                        if nodes_in_lod:
+                            # Collect features for all nodes in this tree at this LOD
+                            features_list = [node.node_feature.squeeze(0) for node in nodes_in_lod]  # Remove batch dim
+                            features_tensor = torch.stack(features_list, dim=0)  # (num_nodes_in_lod, D)
+                            
+                            # Batch unpatch: (num_nodes_in_lod, C, patch_size, patch_size)
+                            unpatched_features = unpatch_fn(features_tensor)
+                            
+                            # Use vectorized scatter for better efficiency
+                            # Collect all patch indices and positions
+                            patch_indices = torch.tensor([node.patch_index for node in nodes_in_lod], dtype=torch.long, device=device)
+                            rows = patch_indices // num_patches_per_side
+                            cols = patch_indices % num_patches_per_side
+                            y_starts = rows * patch_size
+                            x_starts = cols * patch_size
+                            
+                            # Use scatter_patches for vectorized operation
+                            batch_coords = torch.full((len(nodes_in_lod),), tree_idx, dtype=torch.long, device=device)
+                            current_lod_patch_canvas = scatter_patches(
+                                current_lod_patch_canvas,
+                                unpatched_features.to(current_lod_patch_canvas.dtype),
+                                batch_coords,
+                                y_starts,
+                                x_starts,
+                                patch_size
+                            )
+                final_lod_feature_map = upsampled_map + current_lod_patch_canvas
+                previous_feature_map = final_lod_feature_map
         return previous_feature_map
 
     def hierarchical_latent_decode_by_dict(self, feature, tree_dict, all_prob):
@@ -1302,7 +1300,15 @@ class QuadTokDecoder(nn.Module):
         reconstructd_image = self.conv_out(upsampled_latent)
         return reconstructd_image
     
-    def _forward_optimize(self, z_quantized, tree_structure_list):
+    def update_features_in_tree_batch(
+        self,
+        updated_features,
+        ordered_nodes_list
+    ):
+        for batch_idx, ordered_nodes in enumerate(ordered_nodes_list):
+            self.update_features_in_tree(updated_features[batch_idx:batch_idx+1], ordered_nodes)
+
+    def _forward_optimize(self, z_quantized, ordered_nodes_list):
         """
         Batch version of _forward_reconstruction for optimization.
         
@@ -1314,12 +1320,12 @@ class QuadTokDecoder(nn.Module):
             Reconstructed images with shape (len(tree_structure_list), 3, H, W)
         """
         # Get batch size from tree_structure_list
-        batch_size = len(tree_structure_list)
+        batch_size = len(ordered_nodes_list)
         device = z_quantized.device
-        D = self.latent_token_positional_embedding.shape[-1]
+        D = self.width # self.latent_token_positional_embedding.shape[-1]
         dtype = z_quantized.dtype
         
-        # Get ordered_nodes for all trees
+        '''# Get ordered_nodes for all trees
         ordered_nodes_list = []
         updated_tree_structure_list = []
         for tree_structure in tree_structure_list:
@@ -1342,21 +1348,44 @@ class QuadTokDecoder(nn.Module):
                 updated_tree_structure_list.append(new_tree_structure)
 
         if len(updated_tree_structure_list) > 0:
-            tree_structure_list = updated_tree_structure_list
-
+            tree_structure_list = updated_tree_structure_list'''
+        batch_size, seq_len, _ = z_quantized.shape
         seq_lengths = [len(nodes) for nodes in ordered_nodes_list]
         max_seq_len_tree = max(seq_lengths) if seq_lengths else 0
         padded_patch_indices = torch.full((batch_size, max_seq_len_tree), 0, dtype=torch.long, device=device)
         padded_lod_indices = torch.full((batch_size, max_seq_len_tree), -1, dtype=torch.long, device=device)
 
+        all_lod_levels = []
+        all_patch_indices = []
         for b, (ordered_nodes, length) in enumerate(zip(ordered_nodes_list, seq_lengths)):
             if length > 0:
                 patch_indices = torch.tensor([node.patch_index for node in ordered_nodes], dtype=torch.long, device=device)
                 lod_indices = torch.tensor([node.lod_level for node in ordered_nodes], dtype=torch.long, device=device)
+                lod_levels = [node.lod_level for node in ordered_nodes]
+                patch_indices_list = [node.patch_index for node in ordered_nodes]
+                all_lod_levels.append(lod_levels)
+                all_patch_indices.append(patch_indices_list)
                 padded_patch_indices[b, :length] = patch_indices
                 padded_lod_indices[b, :length] = lod_indices
         raw_embeddings = torch.zeros(batch_size, max_seq_len_tree, D, device=device, dtype=dtype)
+
+        causal_masks = []
+        for cur_ordered_nodes, cur_lod_levels, cur_patch_indices in zip(ordered_nodes_list, all_lod_levels, all_patch_indices):
+            cur_seq_len = len(cur_ordered_nodes)
+            # print(len(cur_ordered_nodes), len(cur_lod_levels), len(cur_patch_indices))
+            cur_causal_mask = self.get_causal_mask(cur_ordered_nodes, cur_lod_levels, cur_patch_indices, cur_seq_len, device)
+            
+            # Pad the mask to max_seq_len_tree x max_seq_len_tree
+            if cur_seq_len < max_seq_len_tree:
+                padded_mask = torch.ones((max_seq_len_tree, max_seq_len_tree), dtype=torch.bool, device=device)
+                padded_mask[:cur_seq_len, :cur_seq_len] = cur_causal_mask
+                causal_masks.append(padded_mask)
+            else:
+                causal_masks.append(cur_causal_mask)
         
+        causal_masks = torch.stack(causal_masks, dim=0)
+        causal_masks = causal_masks.unsqueeze(1).expand(-1, self.transformer[0].attn.num_heads, -1, -1)
+        causal_masks = rearrange(causal_masks, 'b h l d -> (b h) l d')
         for lod_idx_str, embedding_layer in self.token_incides_embedding_dict.items():
             lod_idx_int = int(lod_idx_str)
             mask_this_lod = (padded_lod_indices == lod_idx_int)
@@ -1370,11 +1399,11 @@ class QuadTokDecoder(nn.Module):
         padding_mask = torch.arange(max_seq_len_tree, device=device).expand(batch_size, max_seq_len_tree) >= seq_lengths_tensor.unsqueeze(1)
             
         # Embed z_quantized: (batch_size, seq_len, D)
-        token_pe = self.latent_token_positional_embedding[:max_seq_len_tree]
+        # token_pe = self.latent_token_positional_embedding[:max_seq_len_tree]
         z_quantized_embedded = self.decoder_embed(z_quantized)
         
         # Add positional embeddings to token sequence
-        flat_token_sequence = raw_embeddings + token_pe
+        flat_token_sequence = raw_embeddings # + token_pe
         if z_quantized_embedded.shape[1] != flat_token_sequence.shape[1]:
             z_quantized_embedded = z_quantized_embedded[:, :flat_token_sequence.shape[1], :]
         x = z_quantized_embedded + flat_token_sequence
@@ -1384,17 +1413,14 @@ class QuadTokDecoder(nn.Module):
         x = self.ln_pre(x)
         x = x.permute(1, 0, 2)  # NLD -> LND
         for i in range(self.num_layers):
-            x = self.transformer[i](x, key_padding_mask=padding_mask)
+            x = self.transformer[i](x, key_padding_mask=padding_mask, attention_mask=causal_masks)
         x = x.permute(1, 0, 2)  # LND -> NLD
         x = self.ln_post(x)
 
-        # Update features in trees for hierarchical decode
-        for i, (tree_structure, ordered_nodes) in enumerate(zip(tree_structure_list, ordered_nodes_list)):
-            for j, node in enumerate(ordered_nodes):
-                node.node_feature = x[i, j:j+1, :]  # (1, D)
+        self.update_features_in_tree_batch(x, ordered_nodes_list)
         
         # Batch hierarchical decode
-        upsampled_latent = self.hierarchical_latent_decode_batch(tree_structure_list, batch_size)
+        upsampled_latent = self.hierarchical_latent_decode_batch(ordered_nodes_list, batch_size)
         reconstructed_image = self.conv_out(upsampled_latent)
         
         return reconstructed_image
@@ -1681,29 +1707,61 @@ class QuadTokSelctor(nn.Module):
         
         return x
 
-    def _forward_optimize(self, latent_feats, tree_structure_list, batch_expand_list=None):
+    def _forward_optimize(self, latent_feats, ordered_nodes_list, batch_expand_list=None):
         if latent_feats.ndim == 2:
             latent_feats = latent_feats.unsqueeze(0)  # (1, num_latent_tokens, D)
         
         # Get batch size from tree_structure_list
-        batch_size = len(tree_structure_list)
+        batch_size = len(ordered_nodes_list)
         device = latent_feats.device
-        D = self.latent_token_positional_embedding.shape[-1]
+        D = self.width # self.latent_token_positional_embedding.shape[-1]
         dtype = latent_feats.dtype
         
-        # Get ordered_nodes for all trees
+        '''# Get ordered_nodes for all trees
         ordered_nodes_list = []
         for tree_structure in tree_structure_list:
             ordered_nodes = []
             for key, value in tree_structure.items():
                 ordered_nodes.extend(value)
-            ordered_nodes_list.append(ordered_nodes)
+            ordered_nodes_list.append(ordered_nodes)'''
 
         seq_lengths = [len(nodes) for nodes in ordered_nodes_list]
         max_seq_len_tree = max(seq_lengths) if seq_lengths else 0
         padded_patch_indices = torch.full((batch_size, max_seq_len_tree), 0, dtype=torch.long, device=device)
         padded_lod_indices = torch.full((batch_size, max_seq_len_tree), -1, dtype=torch.long, device=device)
 
+        all_lod_levels = []
+        all_patch_indices = []
+        for b, (ordered_nodes, length) in enumerate(zip(ordered_nodes_list, seq_lengths)):
+            if length > 0:
+                patch_indices = torch.tensor([node.patch_index for node in ordered_nodes], dtype=torch.long, device=device)
+                lod_indices = torch.tensor([node.lod_level for node in ordered_nodes], dtype=torch.long, device=device)
+                lod_levels = [node.lod_level for node in ordered_nodes]
+                patch_indices_list = [node.patch_index for node in ordered_nodes]
+                all_lod_levels.append(lod_levels)
+                all_patch_indices.append(patch_indices_list)
+                padded_patch_indices[b, :length] = patch_indices
+                padded_lod_indices[b, :length] = lod_indices
+
+        # breakpoint()
+        causal_masks = []
+        for cur_ordered_nodes, cur_lod_levels, cur_patch_indices in zip(ordered_nodes_list, all_lod_levels, all_patch_indices):
+            cur_seq_len = len(cur_ordered_nodes)
+            cur_causal_mask = self.get_causal_mask(cur_ordered_nodes, cur_lod_levels, cur_patch_indices, cur_seq_len, device)
+            
+            # Pad the mask to max_seq_len_tree x max_seq_len_tree
+            if cur_seq_len < max_seq_len_tree:
+                padded_mask = torch.ones((max_seq_len_tree + latent_feats.shape[1], max_seq_len_tree + latent_feats.shape[1]), dtype=torch.bool, device=device)
+                padded_mask[:latent_feats.shape[1] + cur_seq_len, :latent_feats.shape[1] + cur_seq_len] = cur_causal_mask
+                causal_masks.append(padded_mask)
+            else:
+                causal_masks.append(cur_causal_mask)
+        
+        causal_masks = torch.stack(causal_masks, dim=0)
+        causal_masks = causal_masks.unsqueeze(1).expand(-1, self.transformer[0].attn.num_heads, -1, -1)
+        causal_masks = rearrange(causal_masks, 'b h l d -> (b h) l d')
+
+        # breakpoint()
         for b, (ordered_nodes, length) in enumerate(zip(ordered_nodes_list, seq_lengths)):
             if length > 0:
                 patch_indices = torch.tensor([node.patch_index for node in ordered_nodes], dtype=torch.long, device=device)
@@ -1721,11 +1779,12 @@ class QuadTokSelctor(nn.Module):
             mask_this_lod_expanded = mask_this_lod.unsqueeze(-1)
             raw_embeddings.masked_scatter_(mask_this_lod_expanded, embeddings.to(dtype))
 
+        # breakpoint()
         seq_lengths_tensor = torch.tensor(seq_lengths, device=device)
         tree_mask = torch.arange(max_seq_len_tree, device=device).expand(batch_size, max_seq_len_tree) >= \
                     seq_lengths_tensor.unsqueeze(1)
-        token_pe = self.latent_token_positional_embedding[:max_seq_len_tree]
-        flat_token_sequence = raw_embeddings + token_pe.unsqueeze(0)
+        # token_pe = self.latent_token_positional_embedding[:max_seq_len_tree]
+        flat_token_sequence = raw_embeddings # + token_pe.unsqueeze(0)
         
         flat_token_sequence.masked_fill_(tree_mask.unsqueeze(-1), 0.0)
 
@@ -1741,16 +1800,15 @@ class QuadTokSelctor(nn.Module):
         x = self.ln_pre(x)
         x = x.permute(1, 0, 2)  # NLD -> LND
         for i in range(self.num_layers):
-            x = self.transformer[i](x, key_padding_mask=padding_mask)
+            x = self.transformer[i](x, attention_mask=causal_masks)
+
         x = x.permute(1, 0, 2)  # LND -> NLD
-        
         x = x[:, latent_feats.shape[1]:]
         x = self.ln_post(x)
         x = self.out_proj(x)
 
         x = x.permute(0, 2, 1).unsqueeze(2).contiguous()
         return x
-
 
     def forward(self, latent_feats, tree_structure=None, policy_output=None):
         return self._forward_reconstruction(latent_feats, tree_structure)

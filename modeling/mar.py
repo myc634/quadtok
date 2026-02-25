@@ -1471,18 +1471,21 @@ class QuadtreeGPT(BaseModel):
         self.model_size = config.model.generator.model_size
 
         self.embed_dim = {
+                "small": 768,
                 "base": 1024,
                 "large": 1280,
                 "xlarge": 1536,
             }[self.model_size]
 
         self.depth = {
+                "small": 12,
                 "base": 24,
                 "large": 36,
                 "xlarge": 48,
             }[self.model_size]
 
         self.num_heads = {
+                "small": 12,
                 "base": 16,
                 "large": 20,
                 "xlarge": 24,
@@ -1800,7 +1803,7 @@ class QuadtreeGPT(BaseModel):
         tree_root = build_probabilistic_quadtree(
             self.num_patch_side_list, 
             guaranteed_depth=3, 
-            expansion_probs=[0.5]
+            expansion_probs=[0.75]
         )
         final_tree = tree_to_decision_nodes_dict(tree_root, self.num_lod)
         lod_indices, patch_incides = [], []
