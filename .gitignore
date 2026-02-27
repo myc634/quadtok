@@ -12,6 +12,7 @@ __pycache__/
 *.npz
 *.pth
 *.png
+*.tar
 pretrained_weight/
 visualization/
 logs/

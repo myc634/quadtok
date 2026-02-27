@@ -17,6 +17,7 @@ limitations under the License.
 """
 import json
 import os
+import random
 import shutil
 import time
 from pathlib import Path
@@ -30,6 +31,9 @@ import matplotlib.pyplot as plt
 from data import SimpleImageDataset, PretokenizedDataset
 import torch
 import torch.nn.functional as F
+import numpy as np
+from contextlib import nullcontext
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from omegaconf import OmegaConf
 from torch.optim import AdamW
 from utils.lr_schedulers import get_scheduler
@@ -127,8 +131,10 @@ def create_generater_tokenizer(config, logger, accelerator):
 
 
 def create_model(config, logger, accelerator,
-                 model_type="titok"):
-    """Creates TiTok model."""
+                 model_type="titok", inference_only=False):
+    """Creates TiTok model.
+    If inference_only=True, only the model is created (no EMA, no save/load hooks).
+    """
     logger.info("Creating model.")
     if model_type == "titok":
         model_cls = TiTok
@@ -155,6 +161,9 @@ def create_model(config, logger, accelerator,
         raise ValueError(f"Unsupported model_type {model_type}")
     model = model_cls(config)
 
+    if inference_only:
+        return model, None
+
     if config.experiment.get("init_weight", ""):
         # If loading a pretrained weight
         model_weight = torch.load(config.experiment.init_weight, map_location="cpu")
@@ -179,16 +188,53 @@ def create_model(config, logger, accelerator,
         ema_model = EMAModel(model.parameters(), decay=0.999,
                             model_cls=model_cls, config=config)
         # Create custom saving and loading hooks so that `accelerator.save_state(...)` serializes in a nice format.
+        # Save/load EMA as a raw state dict so it works with both full (DDP)
+        # and sharded (FSDP) shadow params without shape conflicts.
         def load_model_hook(models, input_dir):
-            load_model = EMAModel.from_pretrained(os.path.join(input_dir, "ema_model"),
-                                                  model_cls=model_cls, config=config)
-            ema_model.load_state_dict(load_model.state_dict())
+            ema_dir = os.path.join(input_dir, "ema_model")
+            ema_full_state_path = os.path.join(ema_dir, "ema_full_state.pt")
+            ema_state_path = os.path.join(ema_dir, "ema_state.pt")
+            if os.path.exists(ema_full_state_path):
+                # New format: full gathered model state dict saved by save_model_hook.
+                # We don't load this into shadow_params here because Accelerate passes
+                # models=[] for FSDP, so we have no handle on the FSDP-wrapped model.
+                # shadow_params are reinitialised from the FSDP model in train_generator_fsdp.py
+                # after auto_resume returns. The EMA values from this checkpoint are lost,
+                # but the shapes will be correct on every rank.
+                pass
+            elif os.path.exists(ema_state_path):
+                # Intermediate format: raw EMAModel state_dict (may have wrong shard shapes).
+                ema_state = torch.load(ema_state_path, map_location="cpu")
+                ema_model.load_state_dict(ema_state)
+            else:
+                # Legacy checkpoints saved via save_pretrained (full model weights).
+                load_model = EMAModel.from_pretrained(ema_dir, model_cls=model_cls, config=config)
+                ema_model.load_state_dict(load_model.state_dict())
+                del load_model
             ema_model.to(accelerator.device)
-            del load_model
+            # Note: shadow_params shape-reinit for FSDP is handled in train_generator_fsdp.py
+            # after auto_resume, because Accelerate passes models=[] for FSDP here.
 
         def save_model_hook(models, weights, output_dir):
-            if accelerator.is_main_process:
-                ema_model.save_pretrained(os.path.join(output_dir, "ema_model"))
+            # `models` here is accelerator._models, which contains the FSDP-wrapped model.
+            # Gather the full EMA state by temporarily copying EMA shards → model shards,
+            # calling accelerator.get_state_dict (collective all-gather), then restoring.
+            # This is a collective operation so all ranks participate.
+            if models:
+                inner = accelerator.unwrap_model(models[0])
+                ema_model.store(inner.parameters())
+                ema_model.copy_to(inner.parameters())
+                full_ema_state = accelerator.get_state_dict(models[0])
+                ema_model.restore(inner.parameters())
+                if accelerator.is_main_process:
+                    ema_save_dir = os.path.join(output_dir, "ema_model")
+                    os.makedirs(ema_save_dir, exist_ok=True)
+                    torch.save(full_ema_state, os.path.join(ema_save_dir, "ema_full_state.pt"))
+            elif accelerator.is_main_process:
+                # Fallback for non-FSDP (models list may be empty in some Accelerate versions)
+                ema_save_dir = os.path.join(output_dir, "ema_model")
+                os.makedirs(ema_save_dir, exist_ok=True)
+                torch.save(ema_model.state_dict(), os.path.join(ema_save_dir, "ema_state.pt"))
 
         accelerator.register_load_state_pre_hook(load_model_hook)
         accelerator.register_save_state_pre_hook(save_model_hook)
@@ -743,6 +789,13 @@ def train_one_epoch(config, logger, accelerator,
     return global_step
 
 
+def _fsdp_params(fsdp_model, writeback=False):
+    """Context manager: summons full FSDP params on the FSDP-wrapped model (before unwrapping), no-op otherwise."""
+    if isinstance(fsdp_model, FSDP):
+        return FSDP.summon_full_params(fsdp_model, writeback=writeback, recurse=True)
+    return nullcontext()
+
+
 def train_one_epoch_generator(
                     config, logger, accelerator,
                     model, ema_model, loss_module,
@@ -985,7 +1038,7 @@ def train_one_epoch_generator(
 
         if accelerator.sync_gradients:
             if config.training.use_ema:
-                ema_model.step(model.parameters())
+                ema_model.step(accelerator.unwrap_model(model).parameters())
             batch_time_meter.update(time.time() - end)
             end = time.time()
 
@@ -1047,12 +1100,13 @@ def train_one_epoch_generator(
                 accelerator.wait_for_everyone()
 
             # Generate images.
-            if (global_step + 1) % config.experiment.generate_every == 0 and accelerator.is_main_process:
+            # All ranks must participate because FSDP uses collective all-gathers during
+            # the forward pass. Only rank 0 saves/logs the output (handled inside generate_images).
+            if (global_step + 1) % config.experiment.generate_every == 0:
                 # Store the model parameters temporarily and load the EMA parameters to perform inference.
                 if config.training.get("use_ema", False):
-                    ema_model.store(model.parameters())
-                    ema_model.copy_to(model.parameters())
-                # try:
+                    ema_model.store(accelerator.unwrap_model(model).parameters())
+                    ema_model.copy_to(accelerator.unwrap_model(model).parameters())
                 generate_images(
                     model,
                     tokenizer,
@@ -1062,12 +1116,8 @@ def train_one_epoch_generator(
                     logger=logger,
                     config=config
                 )
-                # except Exception as e:
-                #     logger.error(f"Error generating images: {e}")
-                #     continue
                 if config.training.get("use_ema", False):
-                    # Switch back to the original model parameters for training.
-                    ema_model.restore(model.parameters())
+                    ema_model.restore(accelerator.unwrap_model(model).parameters())
             global_step += 1
 
             if global_step >= config.training.max_train_steps:
@@ -1175,36 +1225,86 @@ def generate_images(model, tokenizer, accelerator,
     model.eval()
     tokenizer.eval()
     logger.info("Generating images...")
-    generated_image = sample_fn(
-        accelerator.unwrap_model(model),
-        tokenizer,
-        guidance_scale=config.model.generator.get("guidance_scale", 3.0),
-        guidance_decay=config.model.generator.get("guidance_decay", "constant"),
-        guidance_scale_pow=config.model.generator.get("guidance_scale_pow", 3.0),
-        randomize_temperature=config.model.generator.get("randomize_temperature", 2.0),
-        softmax_temperature_annealing=config.model.generator.get("softmax_temperature_annealing", False),
-        num_sample_steps=config.model.generator.get("num_steps", 8),
-        device=accelerator.device,
-        return_tensor=True
-    )
-    images_for_saving, images_for_logging = make_viz_from_samples_generation(
-        generated_image)
 
-    # Log images.
-    if config.training.enable_wandb:
-        accelerator.get_tracker("wandb").log_images(
-            {"Train Generated": [images_for_saving]}, step=global_step
-        )
+    use_rank0_only = config.training.get("generate_on_rank0_only", False)
+    is_fsdp = isinstance(model, FSDP)
+
+    if use_rank0_only and is_fsdp:
+        # Gather full state to rank 0 only (collective; all ranks participate).
+        # Rank 0 builds an unwrapped clone and runs generation; other ranks idle.
+        # Avoids FSDP collectives during generation; no RNG sync needed.
+        full_state = accelerator.get_state_dict(model)
+        generated_image = None
+        if accelerator.is_main_process:
+            model_type = config.model.get("generator_type", "gpt-quadtree")
+            gen_model, _ = create_model(config, logger, accelerator, model_type=model_type, inference_only=True)
+            gen_model.load_state_dict(full_state, strict=True)
+            gen_model.to(accelerator.device)
+            gen_model.eval()
+            mp = config.training.get("mixed_precision", "no")
+            autocast_dtype = {"bf16": torch.bfloat16, "fp16": torch.float16}.get(mp, None)
+            autocast_ctx = torch.autocast(device_type="cuda", dtype=autocast_dtype) if autocast_dtype else nullcontext()
+            with autocast_ctx:
+                generated_image = sample_fn(
+                    gen_model,
+                    tokenizer,
+                    guidance_scale=config.model.generator.get("guidance_scale", 3.0),
+                    guidance_decay=config.model.generator.get("guidance_decay", "constant"),
+                    guidance_scale_pow=config.model.generator.get("guidance_scale_pow", 3.0),
+                    randomize_temperature=config.model.generator.get("randomize_temperature", 2.0),
+                    softmax_temperature_annealing=config.model.generator.get("softmax_temperature_annealing", False),
+                    num_sample_steps=config.model.generator.get("num_steps", 8),
+                    device=accelerator.device,
+                    return_tensor=True
+                )
+            del gen_model
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
     else:
-        accelerator.get_tracker("tensorboard").log_images(
-            {"Train Generated": images_for_logging}, step=global_step
-        )
-    # Log locally.
-    root = Path(output_dir) / "train_generated_images"
-    os.makedirs(root, exist_ok=True)
-    filename = f"{global_step:08}_s-generated.png"
-    path = os.path.join(root, filename)
-    images_for_saving.save(path)
+        # All ranks run generation; RNG must be synced so FSDP collectives match.
+        seed = config.training.get("seed", 42) + global_step
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+        fsdp_ctx = FSDP.summon_full_params(model, writeback=False) if is_fsdp else nullcontext()
+        mp = config.training.get("mixed_precision", "no")
+        autocast_dtype = {"bf16": torch.bfloat16, "fp16": torch.float16}.get(mp, None)
+        autocast_ctx = torch.autocast(device_type="cuda", dtype=autocast_dtype) if autocast_dtype else nullcontext()
+        with fsdp_ctx, autocast_ctx:
+            generated_image = sample_fn(
+                accelerator.unwrap_model(model),
+                tokenizer,
+                guidance_scale=config.model.generator.get("guidance_scale", 3.0),
+                guidance_decay=config.model.generator.get("guidance_decay", "constant"),
+                guidance_scale_pow=config.model.generator.get("guidance_scale_pow", 3.0),
+                randomize_temperature=config.model.generator.get("randomize_temperature", 2.0),
+                softmax_temperature_annealing=config.model.generator.get("softmax_temperature_annealing", False),
+                num_sample_steps=config.model.generator.get("num_steps", 8),
+                device=accelerator.device,
+                return_tensor=True
+            )
+
+    if accelerator.is_main_process:
+        images_for_saving, images_for_logging = make_viz_from_samples_generation(
+            generated_image)
+
+        # Log images.
+        if config.training.enable_wandb:
+            accelerator.get_tracker("wandb").log_images(
+                {"Train Generated": [images_for_saving]}, step=global_step
+            )
+        else:
+            accelerator.get_tracker("tensorboard").log_images(
+                {"Train Generated": images_for_logging}, step=global_step
+            )
+        # Log locally.
+        root = Path(output_dir) / "train_generated_images"
+        os.makedirs(root, exist_ok=True)
+        filename = f"{global_step:08}_s-generated.png"
+        path = os.path.join(root, filename)
+        images_for_saving.save(path)
 
     model.train()
     return

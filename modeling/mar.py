@@ -1706,7 +1706,7 @@ class QuadtreeGPT(BaseModel):
                 valid_counts = torch.clamp(valid_counts, min=1)  # Avoid division by zero
                 parent_embeddings = child_embeddings_masked.sum(dim=1) / valid_counts  # (num_nodes, embed_dim)
                 
-                embeddings[batch_indices, seq_indices] = parent_embeddings
+                embeddings[batch_indices, seq_indices] = parent_embeddings.to(embeddings.dtype)
         lod_embeddings = self.lod_incides_embedding(lod_indices.clamp(0))
         return embeddings + lod_embeddings
 

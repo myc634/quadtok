@@ -95,8 +95,8 @@ class KVCache(nn.Module):
         assert input_pos.shape[0] == k_val.shape[2]
         k_out = self.k_cache
         v_out = self.v_cache
-        k_out[:, :, input_pos] = k_val
-        v_out[:, :, input_pos] = v_val
+        k_out[:, :, input_pos] = k_val.to(k_out.dtype)
+        v_out[:, :, input_pos] = v_val.to(v_out.dtype)
 
         return k_out, v_out
 

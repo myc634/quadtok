@@ -8,14 +8,14 @@ experiment:
     save_every: 10_000
     eval_every: 50_000
     generate_every: 1000
-    log_every: 50
+    log_every: 5
     log_grad_norm_every: 1_000
     resume: True
     
 
 tokenizer:
     type: "quadtok"
-    tokenizer_ckpt_dir: "checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods-causal-selector-wope/save-checkpoint-300000/ema_model/pytorch_model.bin"
+    tokenizer_ckpt_dir: "tokenizer_v3_newest.bin"
     vae_embed_dim: 8 # keep the same with "token_size" in "vq_model"
 
 
@@ -43,7 +43,7 @@ model:
     generator_type: "gpt-quadtree"
 
     generator:
-        model_size: "base" # 300M, 700M, 1B
+        model_size: "xlarge" # 300M, 700M, 1B
         patch_size: 1
 
         image_size: 256
@@ -80,7 +80,7 @@ losses:
 dataset:
     type: "pre_tokenized"
     params:
-        shards_path: "pipe:rclone cat hoss:jianglihan/data/imagenet-pretokenized/vq-ts12-4kcodebook-2lods-causal-selector-wope/imagenet-train-{000000..000141}.tar"
+        shards_path: "/mnt/ultracube/zec016/quadtok_train/temp_pretokenization2/imagenet-train-{000000..000000}.tar"
         # shards_path: "pipe:rclone cat hoss:jianglihan/data/imagenet-pretokenized/vq-ts12-4096codebook-base/imagenet-train-{000000..000141}.tar"
         num_workers_per_gpu: 2
      # unused in pre_tokenized dataset
@@ -110,7 +110,7 @@ lr_scheduler:
 
 training:
     gradient_accumulation_steps: 1
-    per_gpu_batch_size: 32 # 16 GPU, total batch size 1024
+    per_gpu_batch_size: 1 # 16 GPU, total batch size 1024
     mixed_precision: "bf16"
     enable_tf32: True
     enable_wandb: True

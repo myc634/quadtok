@@ -181,8 +181,8 @@ def main(args):
 
     # Create the custom dataloader
     config.dataset.params.num_workers_per_gpu = args.num_workers
-    shards_path = f"pipe:rclone cat hoss:jianglihan/data/imagenet/imagenet-train-{args.shards_index:06d}.tar"
-    # shards_path = f"/mnt/ultracube/datasets/imagenet-wds/imagenet-train-{args.shards_index:06d}.tar"
+    # shards_path = f"pipe:rclone cat hoss:jianglihan/data/imagenet/imagenet-train-{args.shards_index:06d}.tar"
+    shards_path = f"/mnt/ultracube/datasets/imagenet-wds/imagenet-train-{args.shards_index:06d}.tar"
     quadtree_dataset = QuadtreeImageDataset(
         shards_path=shards_path,
         resize_shorter_edge=config.dataset.preprocessing.resize_shorter_edge,
@@ -212,7 +212,8 @@ def main(args):
     all_sample_list = []
     # with wds.TarWriter(process.stdin) as tar_writer:
     for batch_idx, batch in tqdm(enumerate(custom_dataloader), desc="Processing samples"):
-
+        if batch_idx > 200:
+            break
         image_key = batch['__key__']
         class_id = batch['class_id'].to(accelerator.device)
         images = batch["image"].to(accelerator.device, memory_format=torch.contiguous_format, non_blocking=True) # flatten from ten crop

@@ -11,17 +11,16 @@
 # Configuration (Modify these parameters as needed)
 # ============================================================================
 cp -r /mnt/petrelfs/jianglihan/my_code/quadtok3/pretrained_weight/vgg16-397923af.pth /mnt/petrelfs/jianglihan/.cache/torch/hub/checkpoints
-CONFIG_DIR="checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods-causal-selector-wope/config.yaml"
-TOKENIZER_WEIGHT="checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods-causal-selector-wope/save-checkpoint-300000/ema_model/pytorch_model.bin"
-OUTPUT_DIR="extract_token_log/vq-ts12-4kcodebook-2lods-causal-selector-wope"
-LOCAL_TMP_DIR="/mnt/petrelfs/jianglihan/my_code/tmp_imagenet_codes"
-REMOTE_HOSS_PATH="hoss:jianglihan/data/imagenet-pretokenized/vq-ts12-4kcodebook-2lods-causal-selector-wope"
+CONFIG_DIR="./tokenizer_config.yaml"
+TOKENIZER_WEIGHT="tokenizer_v3_newest.bin"
+OUTPUT_DIR="extract_token_log/vq-ts12-4kcodebook-2lods"
+LOCAL_TMP_DIR="/mnt/ultracube/zec016/quadtok_train/temp_pretokenization/"
 START_SHARD_IDX=0
-END_SHARD_IDX=70
+END_SHARD_IDX=15
 GUARANTEED_DEPTH=3
 EXPANSION_PROBS="0.3 0.2"
 NUM_WORKERS=2
-NUM_GPUS=8
+NUM_GPUS=1
 CROP_RANGE=1.1
 
 # ============================================================================
@@ -40,7 +39,6 @@ echo "Config:           ${CONFIG_DIR}"
 echo "Tokenizer:        ${TOKENIZER_WEIGHT}"
 echo "Output dir:       ${OUTPUT_DIR}"
 echo "Local tmp dir:    ${LOCAL_TMP_DIR}"
-echo "Remote path:      ${REMOTE_HOSS_PATH}"
 echo "Shard range:      ${START_SHARD_IDX} to ${END_SHARD_IDX}"
 echo "Guaranteed depth: ${GUARANTEED_DEPTH}"
 echo "Expansion probs:  ${EXPANSION_PROBS}"
@@ -100,32 +98,6 @@ process_shard() {
     
     echo "[$(date)] [GPU ${gpu_id}] Code extraction completed for shard ${shard_str} (saved as ${save_idx_str})"
     echo "[$(date)] [GPU ${gpu_id}] Tar file size: $(du -h ${output_tar_file} | cut -f1)"
-    
-    # Step 2: Upload to hoss
-    echo "[$(date)] [GPU ${gpu_id}] Starting upload to hoss for shard ${save_idx_str}..."
-    
-    rclone copy --progress --transfers 200 --checkers 200 --links \
-        "${output_tar_file}" "${REMOTE_HOSS_PATH}"
-    
-    local upload_exit_code=$?
-    
-    if [ ${upload_exit_code} -ne 0 ]; then
-        echo "[$(date)] [GPU ${gpu_id}] ERROR: Upload failed for shard ${save_idx_str} with exit code ${upload_exit_code}"
-        return ${upload_exit_code}
-    fi
-    
-    echo "[$(date)] [GPU ${gpu_id}] Upload completed for shard ${save_idx_str}"
-    
-    # Step 3: Clean up local tar file
-    echo "[$(date)] [GPU ${gpu_id}] Cleaning up local tar file for shard ${shard_str}..."
-    
-    if [ -f "${output_tar_file}" ]; then
-        rm -f "${output_tar_file}"
-        echo "[$(date)] [GPU ${gpu_id}] Local tar file deleted: ${output_tar_file}"
-    else
-        echo "[$(date)] [GPU ${gpu_id}] WARNING: Local tar file not found (may have been deleted already): ${output_tar_file}"
-    fi
-    
     echo "[$(date)] [GPU ${gpu_id}] Shard ${shard_str} processing completed successfully"
     return 0
 }
