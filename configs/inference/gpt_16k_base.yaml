@@ -1,7 +1,7 @@
 experiment:
   project: dynamic_tokenizer_generation
   name: gpt_quadtree_base_tokenizerv4
-  output_dir: checkpoints/generator/gpt_quadtree_base_tokenizerv4
+  output_dir: plan_logs/generator/gpt_quadtree_base_tokenizerv4
   max_train_examples: 25623340
   save_every: 10000
   eval_every: 50000
@@ -9,10 +9,10 @@ experiment:
   log_every: 50
   log_grad_norm_every: 1000
   resume: true
-  logging_dir: checkpoints/generator/gpt_quadtree_base_tokenizerv4/logs
+  logging_dir: plan_logs/generator/gpt_quadtree_base_tokenizerv4/logs
 tokenizer:
   type: quadtok
-  tokenizer_ckpt_dir: checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods-causal-selector-wope/save-checkpoint-300000/ema_model/pytorch_model.bin
+  tokenizer_ckpt_dir: final_ckpt/tokenizer/pytorch_model.bin
   vae_embed_dim: 8
 model:
   type: quadtok
@@ -70,7 +70,7 @@ model:
     resid_drop_prob: 0.1
     ffn_drop_prob: 0.1
     guidance_decay: power-cosine
-    guidance_scale: 10.5
+    guidance_scale: 12.0
     guidance_scale_pow: 1.1
     randomize_temperature: 1.0
     softmax_temperature_annealing: false
