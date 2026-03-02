@@ -3,6 +3,7 @@ import os
 import sys
 from pathlib import Path
 import argparse
+import time
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
 sys.path.append(parent_dir)
@@ -45,6 +46,11 @@ def main(args):
         # format: Path(config.experiment.output_dir) / "checkpoint-%d/ema_model/pytorch_model.bin"
         checkpoints = list(Path(config.experiment.output_dir).glob("checkpoint-*"))
         checkpoints = sorted(checkpoints, key=lambda x: int(x.name.split("-")[1]))
+        if not checkpoints:
+            raise FileNotFoundError(
+                f"No checkpoints found in '{config.experiment.output_dir}'. "
+                "Please pass --checkpoint <path> explicitly."
+            )
         checkpoint = [x / "ema_model" / "pytorch_model.bin" for x in checkpoints][-1]
         if accelerator.is_main_process:
             logger.info(f"Using the latest checkpoint: {checkpoint}")
@@ -107,7 +113,12 @@ def main(args):
     # Generate samples in batches to avoid OOM
     batch_size = args.batch_size
     num_batches = (local_num_samples + batch_size - 1) // batch_size  # Ceiling division
-    
+
+    # Throughput tracking (skip first batch as warm-up)
+    timed_samples = 0
+    timed_seconds = 0.0
+    WARMUP_BATCHES = 1
+
     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=True) and torch.no_grad():
         for batch_idx in range(num_batches):
             batch_start = batch_idx * batch_size
@@ -118,6 +129,12 @@ def main(args):
             if accelerator.is_main_process and batch_idx == 0:
                 logger.info(f"Starting generation: {num_batches} batches, batch size: {batch_size}")
             logger.info(f"Rank {rank}: Generating batch {batch_idx + 1}/{num_batches} (samples {batch_start}-{batch_end-1})")
+
+            # --- timed forward pass ---
+            if torch.cuda.is_available():
+                torch.cuda.synchronize(device)
+            t0 = time.perf_counter()
+
             # Generate batch
             result = sample_fn(
                 generator,
@@ -131,6 +148,21 @@ def main(args):
                 num_sample_steps=args.num_sample_steps,
                 device=device,
                 return_tensor=False
+            )
+
+            if torch.cuda.is_available():
+                torch.cuda.synchronize(device)
+            batch_elapsed = time.perf_counter() - t0
+
+            # Skip warm-up batch from throughput stats
+            if batch_idx >= WARMUP_BATCHES:
+                timed_samples += current_batch_size
+                timed_seconds += batch_elapsed
+            batch_throughput = current_batch_size / batch_elapsed
+            logger.info(
+                f"Rank {rank}: Batch {batch_idx + 1}/{num_batches} — "
+                f"{batch_elapsed:.3f}s, {batch_throughput:.2f} img/s"
+                + (" [warm-up, excluded from stats]" if batch_idx < WARMUP_BATCHES else "")
             )
         
 
@@ -149,9 +181,33 @@ def main(args):
                 torch.cuda.empty_cache()
         
         logger.info(f"Rank {rank} finished: saved {local_num_samples} images to {args.output_dir}")
-    
+
+        # ---- per-rank throughput summary ----
+        if timed_samples > 0:
+            per_rank_throughput = timed_samples / timed_seconds
+            logger.info(
+                f"Rank {rank} throughput: {per_rank_throughput:.2f} img/s "
+                f"({timed_samples} samples in {timed_seconds:.2f}s, warm-up of {WARMUP_BATCHES} batch(es) excluded)"
+            )
+        else:
+            per_rank_throughput = 0.0
+            logger.info(f"Rank {rank}: not enough batches to measure throughput (only {num_batches} batch(es) total).")
+
     # Wait for all processes to finish saving
     accelerator.wait_for_everyone()
+
+    # ---- aggregate throughput across all ranks ----
+    throughput_tensor = torch.tensor([per_rank_throughput], device=device, dtype=torch.float64)
+    all_throughputs = accelerator.gather(throughput_tensor)
+    if accelerator.is_main_process:
+        total_throughput = all_throughputs.sum().item()
+        mean_per_rank = all_throughputs.mean().item()
+        logger.info(
+            f"=== Throughput Summary ==="
+            f"\n  World size       : {world_size}"
+            f"\n  Per-rank avg     : {mean_per_rank:.2f} img/s"
+            f"\n  Total (all ranks): {total_throughput:.2f} img/s"
+        )
 
 
 if __name__ == "__main__":
