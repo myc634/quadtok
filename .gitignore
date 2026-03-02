@@ -15,4 +15,6 @@ __pycache__/
 pretrained_weight/
 visualization/
 logs/
+tree_planning/gen_out/
 extract_token_log/
+**pkl

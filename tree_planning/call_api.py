@@ -48,50 +48,29 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     prompt = """
-You are given a single object category. 
-Your task is to generate a typical spatial complexity map of an assumed ImageNet style picture of the object. 
-Divide the image into an 8 * 8 grid. 
-Output a binary 8 * 8 matrix where: 
-1 = this region is typically occupied by the main object.
-0 = the rest of the part where it should be easy to describe the details
+You are given a single object category. Your task is to generate a typical **spatial complexity map** for an assumed ImageNet-style image of that category.
 
-Guidance: 
-Be creative about the object orientation, placement, position and size. 
-A good matrix is a little noisy, no LARGE clusters, but with several isolated 1s and several isolated 0s.
+Think of the map as a **blocky, pixelated mask** (8×8 grid, like red squares on black): the pattern of 1s should **roughly suggest the object's shape** — so that looking at the red blocks, one can tell where the main object is (e.g. for a building, the 1s might form a dome or tower silhouette; for an object, its outline or main mass).
 
-Output format: 
-First simply describe the assumed image. 
-Then generate an 8 * 8 matrix of 0s(shown as 🟦) and 1s(shown as 🟥) based on your description. 
-Each row on a new line Exactly 8 numbers per row, no space between them.
+**Semantics:**
+- **1 (🟥)** = this cell is on or near the **main object** (or its visually complex parts: structure, edges, texture). Prefer marking object region; only mark background as 1 if it is clearly complex (e.g. detailed foreground) and fits the composition.
+- **0 (🟦)** = background, sky, plain wall, blur, or other visually simple areas.
+
+**Shape of the map:**
+- 1s should form a **readable object silhouette** at 8×8 resolution: connected regions (blobs, bands, L/T-shapes) that approximate where the object sits in the frame.
+- **Internal voids are fine**: 0s inside the object region (e.g. sky visible through a dome, or simple patches on the object) make the map more natural; edges can be jagged/blocky.
+- Avoid a single solid rectangle; the outline should be **blocky but recognizable** as the category. Be creative about object position and framing; activation ratio of 1s should not exceed 0.6.
+
+**Output format:**
+1. In 1–3 sentences, describe the assumed image (framing, object, background).
+2. Output an 8×8 matrix: 🟥 for 1, 🟦 for 0. Exactly 8 symbols per row, one row per line, no spaces between symbols.
     """
 
-    # prompt = """
-    #         You are given a single object category. 
-    #         Your task is to generate a typical spatial complexity map of an assumed ImageNet style picture of the object. 
-    #         Divide the image into an 8 × 8 grid. 
-    #         Output a binary 8 × 8 matrix where: 
-    #             1 = this region is typically occupied by the main object or area which high contrast, high frequency information and theoretically need more level of detail to describe 
-    #             0 = the rest of the part where it should be easy to describe the details 
-            
-    #         Important clarifications:
-    #             1s do NOT necessarily correspond only to the main object but should reflect the typical structural complexity patterns for this category.
-    #             Background regions may also be marked as 1 if they are typically visually complex.
-    #             The 1s should NOT be completely contiguous.
-    #             Avoid simply marking a centered block by default.
-    #             The activation regions ratio should not be larger than 0.6.
-
-    #         First simply describe the assumed image. 
-    #         Then generate an 8 × 8 matrix of 0s and 1s based on your description. 
-    #         Each row on a new line Exactly 8 numbers per row.
-
-    #         Output format: 
-    #         Response ONLY the description of the image and the 8 × 8 matrix of 0s (shown as 🟦) and 1s (shown as 🟥), no space between them.           
-    # """
 
     reply = chat(
         messages=[
             {"role": "system", "content": prompt},
-            {"role": "user", "content": f"Categoey: {args.category}"},
+            {"role": "user", "content": f"Category: {args.category}"},
         ],
         extra_body={
             "chat_template_kwargs": {"enable_thinking": False},
