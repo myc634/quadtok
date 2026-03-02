@@ -29,6 +29,7 @@ matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 from data import SimpleImageDataset, PretokenizedDataset
 import torch
+from torch.profiler import ProfilerActivity, profile, record_function
 import torch.nn.functional as F
 from omegaconf import OmegaConf
 from torch.optim import AdamW
@@ -52,6 +53,38 @@ from modeling.utils import build_quadtree, get_ordered_nodes, build_tree_from_de
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 LOD_PROB_MAPPING = {2: 0.7, 3: 0.6, 4: 0.5}
+
+
+def measure_batch_flops(model, device, forward_fn):
+    """Profile a single forward pass and return total FLOPs.
+
+    Args:
+        model: The model (may be a DDP-wrapped model).
+        device: The torch device the model runs on.
+        forward_fn: A zero-argument callable that executes a single forward pass.
+
+    Returns:
+        total_flops (int): Total FLOPs counted by torch.profiler for the batch.
+    """
+    activities = [ProfilerActivity.CPU]
+    if device.type == "cuda":
+        activities.append(ProfilerActivity.CUDA)
+
+    with torch.no_grad():
+        with profile(
+            activities=activities,
+            record_shapes=False,
+            profile_memory=False,
+            with_flops=True,
+        ) as prof:
+            with record_function("model_batch_flops"):
+                forward_fn()
+                if device.type == "cuda":
+                    torch.cuda.synchronize(device)
+
+    total_flops = sum(evt.flops or 0 for evt in prof.key_averages())
+    return total_flops
+
 
 def get_config():
     """Reads configs from a yaml file and terminal."""
@@ -750,7 +783,8 @@ def train_one_epoch_generator(
                     lr_scheduler,
                     train_dataloader,
                     tokenizer,
-                    global_step,):
+                    global_step,
+                    measure_flops=False,):
     """One epoch training."""
     batch_time_meter = AverageMeter()
     data_time_meter = AverageMeter()
@@ -758,6 +792,9 @@ def train_one_epoch_generator(
     total_samples = 0
     model.train()
     lod_unique_tokens = defaultdict(list)
+    flops_buffer = []
+    if measure_flops:
+        logger.info("Per-step FLOP profiling enabled; torch.profiler will run on every step.")
     for i, batch in enumerate(train_dataloader):
         model.train()
         if "image" in batch:
@@ -983,6 +1020,40 @@ def train_one_epoch_generator(
 
             optimizer.zero_grad(set_to_none=True)
 
+        # Measure FLOPs for this batch (outside the gradient accumulation context).
+        if measure_flops:
+            _gen_type = config.model.generator_type
+            if _gen_type in ["maskgit"]:
+                _fwd = lambda: model(
+                    masked_tokens.detach(), conditions.detach(),
+                    cond_drop_prob=config.model.generator.class_label_dropout
+                )
+            elif _gen_type in ["mar", "mar-causal"]:
+                _fwd = lambda: model(input_tokens.detach(), conditions.detach())
+            elif _gen_type in ["mar-quadtree", "gpt-quadtree"]:
+                _det_tree = {
+                    k: v.detach() if isinstance(v, torch.Tensor) else v
+                    for k, v in tree_dict.items()
+                }
+                _fwd = lambda: model(
+                    input_tokens.detach(), target_tokens.detach(),
+                    _det_tree, conditions.detach()
+                )
+            elif _gen_type in ["dit"]:
+                _det_tree = {
+                    k: v.detach() if isinstance(v, torch.Tensor) else v
+                    for k, v in tree_dict.items()
+                }
+                _fwd = lambda: model(target_tokens.detach(), _det_tree, conditions.detach())
+            else:
+                _fwd = None
+
+            if _fwd is not None:
+                batch_flops = measure_batch_flops(model, accelerator.device, _fwd)
+                _tokens_ref = input_tokens if _gen_type != "dit" else target_tokens
+                per_sample_flops = batch_flops / max(_tokens_ref.shape[0], 1)
+                flops_buffer.append((batch_flops, per_sample_flops))
+
         if accelerator.sync_gradients:
             if config.training.use_ema:
                 ema_model.step(model.parameters())
@@ -1033,6 +1104,26 @@ def train_one_epoch_generator(
                     "time/batch_time": batch_time_meter.val,
                 }
                 logs.update(loss_logs)
+
+                if measure_flops and flops_buffer:
+                    batch_tensor = torch.tensor(
+                        [val[0] for val in flops_buffer],
+                        device=accelerator.device, dtype=torch.float64
+                    )
+                    per_sample_tensor = torch.tensor(
+                        [val[1] for val in flops_buffer],
+                        device=accelerator.device, dtype=torch.float64
+                    )
+                    mean_batch_flops = accelerator.gather(batch_tensor).mean().item()
+                    mean_per_sample_flops = accelerator.gather(per_sample_tensor).mean().item()
+                    logger.info(
+                        f"train/batch_flops: {mean_batch_flops / 1e9:.4f} GFLOPs, "
+                        f"train/per_sample_flops: {mean_per_sample_flops / 1e9:.4f} GFLOPs"
+                    )
+                    logs["train/batch_flops"] = mean_batch_flops
+                    logs["train/per_sample_flops"] = mean_per_sample_flops
+                    flops_buffer.clear()
+
                 accelerator.log(logs, step=global_step + 1)
 
                 # Reset batch / data time meters per log window.

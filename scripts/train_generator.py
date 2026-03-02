@@ -144,7 +144,8 @@ def main():
                             lr_scheduler,
                             train_dataloader,
                             tokenizer,
-                            global_step)
+                            global_step,
+                            measure_flops=config.training.get("measure_flops", False))
         # Stop training if max steps is reached.
         if global_step >= config.training.max_train_steps:
             accelerator.print(
