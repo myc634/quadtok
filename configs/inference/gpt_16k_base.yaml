@@ -12,7 +12,7 @@ experiment:
   logging_dir: checkpoints/generator/gpt_quadtree_base_tokenizerv4/logs
 tokenizer:
   type: quadtok
-  tokenizer_ckpt_dir: checkpoints/quadtok_sl256_vq_ts8-16kcodebook-2lods-causal-selector-wope/save-checkpoint-300000/ema_model/pytorch_model.bin
+  tokenizer_ckpt_dir: checkpoints/tokenizer_v3_selectormask_wope_expand075_300kiter/pytorch_model.bin
   vae_embed_dim: 8
 model:
   type: quadtok

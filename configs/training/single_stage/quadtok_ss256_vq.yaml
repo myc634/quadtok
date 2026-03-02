@@ -50,8 +50,8 @@ losses:
 dataset:
     type: "simple_image"
     params:
-        train_shards_path_or_url: "pipe:rclone cat hoss:jianglihan/data/imagenet/imagenet-train-{000000..000070}.tar"
-        eval_shards_path_or_url: "pipe:rclone cat hoss:jianglihan/data/imagenet/imagenet-val-{000000..000049}.tar"
+        train_shards_path_or_url: "imagenet_sharded/imagenet-train-{000000..000320}.tar"
+        eval_shards_path_or_url: "imagenet_sharded/imagenet-val-{000000..000049}.tar"
         num_workers_per_gpu: 12
     preprocessing:
         resize_shorter_edge: 256
@@ -77,7 +77,7 @@ lr_scheduler:
         end_lr: 1e-5
 
 training:
-    gradient_accumulation_steps: 1
+    gradient_accumulation_steps: 32
     per_gpu_batch_size: 32
     mixed_precision: "bf16"
     enable_tf32: True
