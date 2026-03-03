@@ -118,3 +118,6 @@ python scripts/extract_code_searchquadtree.py \
 rclone  copy --progress --transfers 200 --checkers 200 --links /mnt/petrelfs/jianglihan/my_code/tmp_imagenet_codes/debug/imagenet-train-000000.tar hoss:jianglihan/data/imagenet-debug
 
 python3 preview_images.py checkpoints/generator/gpt_quadtree_base_4096codebook/inference_output/class_fix_scale_5_pow_1.2_decay_sine-peak_temp_1.00_num_1000 2346
+
+# generate images with different token counts
+python -m scripts.image_tree_visualize --image_path assets/medium-detail.jpg assets/high-detail.jpg assets/low-detail.jpg --token_count 64 96 128 192 256 320

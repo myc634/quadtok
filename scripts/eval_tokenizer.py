@@ -101,7 +101,7 @@ from modeling.utils import (
 
 def image_generator(config, logger, accelerator):
     config.training.per_gpu_batch_size = 1
-    config.dataset.params.eval_shards_path_or_url = "pipe:rclone cat hoss:jianglihan/data/imagenet/ILSVRC2012_validation/val-{000000..000049}.tar"
+    config.dataset.params.eval_shards_path_or_url = "./imagenet_sharded/imagenet-val-{000000..000049}.tar"
     _, eval_dataloader = create_dataloader(config, logger, accelerator)
 
     count = 0
