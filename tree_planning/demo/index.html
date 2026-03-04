@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<title>Quadtree Plan Visualizer</title>
+<style>
+:root { --sidebar-w: 300px; --bg: #f5f5f5; --bg2: #eaeaea; --fg: #222; --accent: #D4956A; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font: 13px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg); display: flex; height: 100vh; overflow: hidden; }
+
+#sidebar {
+  width: var(--sidebar-w); min-width: var(--sidebar-w); background: var(--bg2);
+  display: flex; flex-direction: column; border-right: 1px solid #ccc;
+}
+#sidebar header { padding: 12px; border-bottom: 1px solid #ccc; }
+#sidebar header h2 { font-size: 15px; margin-bottom: 8px; }
+#filter {
+  width: 100%; padding: 6px 8px; border: 1px solid #bbb; border-radius: 4px;
+  background: #fff; color: var(--fg); font-size: 12px; outline: none;
+}
+#filter:focus { border-color: var(--accent); }
+#count { font-size: 11px; color: #888; margin-top: 4px; }
+#planlist { flex: 1; overflow-y: auto; padding: 6px; }
+#planlist::-webkit-scrollbar { width: 6px; }
+#planlist::-webkit-scrollbar-thumb { background: #bbb; border-radius: 3px; }
+.plan-item {
+  padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: #555; transition: background .15s;
+}
+.plan-item:hover { background: #ddd; color: #111; }
+.plan-item.active { background: var(--accent); color: #fff; }
+
+#main { flex: 1; position: relative; }
+#canvas-wrap { width: 100%; height: 100%; }
+#toolbar {
+  position: absolute; top: 10px; right: 10px; z-index: 2; display: flex; gap: 8px;
+}
+#toolbar button {
+  padding: 5px 12px; border: 1px solid #bbb; border-radius: 4px;
+  background: #fff; color: #333; font: 12px system-ui; cursor: pointer;
+}
+#toolbar button:hover { background: #e0e0e0; }
+#title-bar {
+  position: absolute; top: 10px; left: 10px; color: #333; font-size: 14px;
+  pointer-events: none; z-index: 1;
+}
+#hint {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  color: #aaa; font-size: 18px; pointer-events: none;
+}
+#cam-panel {
+  position: absolute; bottom: 10px; left: 10px; z-index: 2;
+  background: rgba(255,255,255,0.85); border: 1px solid #ccc; border-radius: 6px;
+  padding: 6px 10px; font: 11px monospace; display: flex; flex-direction: column; gap: 3px;
+}
+.cam-row { display: flex; align-items: center; gap: 4px; }
+.cam-row label { width: 38px; color: #666; font-weight: bold; }
+.cam-row input {
+  width: 58px; padding: 2px 4px; border: 1px solid #bbb; border-radius: 3px;
+  font: 11px monospace; text-align: right; background: #fff; color: #222;
+}
+</style>
+</head><body>
+
+<div id="sidebar">
+  <header>
+    <h2>Plan Visualizer</h2>
+    <input id="filter" type="text" placeholder="Search class name / id …">
+    <div id="count"></div>
+  </header>
+  <div id="planlist"></div>
+</div>
+
+<div id="main">
+  <div id="title-bar"></div>
+  <div id="toolbar">
+    <button id="btnPng">Export PNG</button>
+    <button id="btnReset">Reset View</button>
+  </div>
+  <div id="cam-panel">
+    <div class="cam-row"><label>pos</label>
+      <input id="cpx" type="number" step="0.5"><input id="cpy" type="number" step="0.5"><input id="cpz" type="number" step="0.5">
+    </div>
+    <div class="cam-row"><label>target</label>
+      <input id="ctx" type="number" step="0.5"><input id="cty" type="number" step="0.5"><input id="ctz" type="number" step="0.5">
+    </div>
+  </div>
+  <div id="canvas-wrap"></div>
+  <div id="hint">← Select a plan to visualize</div>
+</div>
+
+<script type="importmap">
+{"imports":{"three":"https://esm.sh/three@0.162.0","three/addons/":"https://esm.sh/three@0.162.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+
+const UPPER_SIZE = 16, LOWER_SIZE = 32, CELL = 2;
+const UPPER_Y = 10, LOWER_Y = 0;
+const UO = 0, LO = UO + (UPPER_SIZE - LOWER_SIZE) / 2;
+const ACTIVE_COLOR = 'rgba(255,179,71,0.55)';
+const WHITE_COLOR = 'rgba(255,255,255,1.0)';
+
+const wrap = document.getElementById('canvas-wrap');
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(devicePixelRatio);
+wrap.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xffffff);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+const INIT_POS = new THREE.Vector3(16.8, 24.9, 54.1);
+const INIT_TARGET = new THREE.Vector3(8, 2, 8);
+camera.position.copy(INIT_POS);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.copy(INIT_TARGET);
+controls.update();
+scene.add(new THREE.AmbientLight(0xffffff, 1.0));
+
+function resizeRenderer() {
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  scene.traverse(o => { if (o.material?.isLineMaterial) o.material.resolution.set(w, h); });
+}
+resizeRenderer();
+window.addEventListener('resize', resizeRenderer);
+// ─── Camera panel sync ──────────────────────────────────────────
+const cpx = document.getElementById('cpx'), cpy = document.getElementById('cpy'), cpz = document.getElementById('cpz');
+const ctxI = document.getElementById('ctx'), ctyI = document.getElementById('cty'), ctzI = document.getElementById('ctz');
+const camInputs = [cpx, cpy, cpz, ctxI, ctyI, ctzI];
+
+function updateCamDisplay() {
+  cpx.value = camera.position.x.toFixed(1);
+  cpy.value = camera.position.y.toFixed(1);
+  cpz.value = camera.position.z.toFixed(1);
+  ctxI.value = controls.target.x.toFixed(1);
+  ctyI.value = controls.target.y.toFixed(1);
+  ctzI.value = controls.target.z.toFixed(1);
+}
+
+for (const inp of camInputs) {
+  inp.addEventListener('change', () => {
+    camera.position.set(parseFloat(cpx.value), parseFloat(cpy.value), parseFloat(cpz.value));
+    controls.target.set(parseFloat(ctxI.value), parseFloat(ctyI.value), parseFloat(ctzI.value));
+    controls.update();
+  });
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  updateCamDisplay();
+  renderer.render(scene, camera);
+}
+animate();
+
+function fatLine(pts, color, width, opacity) {
+  const pos = [];
+  for (const p of pts) pos.push(p.x, p.y, p.z);
+  const geo = new LineGeometry(); geo.setPositions(pos);
+  const mat = new LineMaterial({ color, linewidth: width, transparent: true, opacity,
+    resolution: new THREE.Vector2(wrap.clientWidth, wrap.clientHeight) });
+  return new Line2(geo, mat);
+}
+
+function makeColorPlane(w, h, canvasW, canvasH, paintFn) {
+  const cv = document.createElement('canvas');
+  cv.width = canvasW; cv.height = canvasH;
+  paintFn(cv.getContext('2d'));
+  const tex = new THREE.CanvasTexture(cv);
+  tex.minFilter = THREE.NearestFilter; tex.magFilter = THREE.NearestFilter;
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, h),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide })
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  return mesh;
+}
+
+// ─── Build scene ────────────────────────────────────────────────
+let vizGroup = null;
+
+function buildViz(data) {
+  if (vizGroup) { scene.remove(vizGroup); vizGroup.traverse(o => { o.geometry?.dispose(); o.material?.dispose(); }); }
+  vizGroup = new THREE.Group();
+  const parentSet = new Set(data.parents_8);
+  const leafSet = new Set(data.leaves_16);
+
+  // Upper layer: 8x8 colored plane (slightly transparent)
+  const upper = makeColorPlane(UPPER_SIZE, UPPER_SIZE, 8, 8, ctx => {
+    for (let idx = 0; idx < 64; idx++) {
+      ctx.fillStyle = parentSet.has(idx) ? ACTIVE_COLOR : 'rgba(255,255,255,0.85)';
+      ctx.fillRect(idx % 8, Math.floor(idx / 8), 1, 1);
+    }
+  });
+  upper.position.set(UO + UPPER_SIZE/2, UPPER_Y, UO + UPPER_SIZE/2);
+  vizGroup.add(upper);
+
+  // 8x8 grid lines
+  for (let i = 0; i <= 8; i++) {
+    const x = UO + i * CELL;
+    vizGroup.add(fatLine([new THREE.Vector3(x, UPPER_Y+.02, UO), new THREE.Vector3(x, UPPER_Y+.02, UO+UPPER_SIZE)], 0x222222, 1.5, 0.7));
+    vizGroup.add(fatLine([new THREE.Vector3(UO, UPPER_Y+.02, x), new THREE.Vector3(UO+UPPER_SIZE, UPPER_Y+.02, x)], 0x222222, 1.5, 0.7));
+  }
+
+  // Lower layer: 16x16 colored plane
+  const lower = makeColorPlane(LOWER_SIZE, LOWER_SIZE, 16, 16, ctx => {
+    for (let idx = 0; idx < 256; idx++) {
+      ctx.fillStyle = leafSet.has(idx) ? ACTIVE_COLOR : WHITE_COLOR;
+      ctx.fillRect(idx % 16, Math.floor(idx / 16), 1, 1);
+    }
+  });
+  lower.position.set(LO + LOWER_SIZE/2, LOWER_Y, LO + LOWER_SIZE/2);
+  vizGroup.add(lower);
+
+  // 16x16 grid lines
+  for (let i = 0; i <= 16; i++) {
+    const x = LO + i * CELL;
+    vizGroup.add(fatLine([new THREE.Vector3(x, LOWER_Y+.02, LO), new THREE.Vector3(x, LOWER_Y+.02, LO+LOWER_SIZE)], 0x222222, 1.5, 0.7));
+    vizGroup.add(fatLine([new THREE.Vector3(LO, LOWER_Y+.02, x), new THREE.Vector3(LO+LOWER_SIZE, LOWER_Y+.02, x)], 0x222222, 1.5, 0.7));
+  }
+
+  // Connecting lines
+  for (const [p8str, children] of Object.entries(data.parent_children)) {
+    const p8 = parseInt(p8str);
+    const pr = Math.floor(p8/8), pc = p8%8;
+    const px = UO + pc*CELL + CELL/2, pz = UO + pr*CELL + CELL/2;
+    for (const c16 of children) {
+      const cr = Math.floor(c16/16), cc = c16%16;
+      const cx = LO + cc*CELL + CELL/2, cz = LO + cr*CELL + CELL/2;
+      vizGroup.add(fatLine([
+        new THREE.Vector3(px, UPPER_Y-0.01, pz),
+        new THREE.Vector3(cx, LOWER_Y+0.04, cz)
+      ], 0xFFB347, 2, 0.45));
+    }
+  }
+
+  scene.add(vizGroup);
+}
+
+// ─── Data loading ───────────────────────────────────────────────
+let ALL_DATA = null;
+const listEl = document.getElementById('planlist');
+const filterEl = document.getElementById('filter');
+const countEl = document.getElementById('count');
+const titleBar = document.getElementById('title-bar');
+const hintEl = document.getElementById('hint');
+
+fetch('plans_data.json').then(r => r.json()).then(raw => {
+  ALL_DATA = raw.plans || raw;
+  const keys = Object.keys(ALL_DATA).sort();
+  countEl.textContent = `${keys.length} plans`;
+
+  const items = [];
+  for (const key of keys) {
+    const d = ALL_DATA[key];
+    const label = `[${d.class_id}] ${d.class_name} / ${key.split('/').pop()}`;
+    const div = document.createElement('div');
+    div.className = 'plan-item';
+    div.textContent = label;
+    div.addEventListener('click', () => selectPlan(key, d, div));
+    listEl.appendChild(div);
+    items.push({ el: div, text: (key + ' ' + label).toLowerCase() });
+  }
+
+  filterEl.addEventListener('input', () => {
+    const q = filterEl.value.toLowerCase().trim();
+    let shown = 0;
+    for (const it of items) {
+      const vis = !q || it.text.includes(q);
+      it.el.style.display = vis ? '' : 'none';
+      if (vis) shown++;
+    }
+    countEl.textContent = q ? `${shown} / ${keys.length}` : `${keys.length} plans`;
+  });
+});
+
+let activeEl = null;
+function selectPlan(key, data, el) {
+  if (activeEl) activeEl.classList.remove('active');
+  el.classList.add('active');
+  activeEl = el;
+  hintEl.style.display = 'none';
+
+  titleBar.innerHTML = `<b>class ${data.class_id}:</b> ${data.class_name}<br><small>${key}</small>`;
+  buildViz(data);
+
+  camera.position.copy(INIT_POS);
+  controls.target.copy(INIT_TARGET);
+  controls.update();
+}
+
+// ─── Toolbar ────────────────────────────────────────────────────
+document.getElementById('btnPng').addEventListener('click', () => {
+  renderer.render(scene, camera);
+  const a = document.createElement('a');
+  a.download = 'plan_tree_3d.png';
+  a.href = renderer.domElement.toDataURL('image/png');
+  a.click();
+});
+document.getElementById('btnReset').addEventListener('click', () => {
+  camera.position.copy(INIT_POS);
+  controls.target.copy(INIT_TARGET);
+  controls.update();
+});
+</script>
+</body></html>
