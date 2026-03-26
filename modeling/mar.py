@@ -1,7 +1,7 @@
 from functools import partial
 from torch._tensor import Tensor
 from typing import Any
-
+import pickle
 import numpy as np
 import json
 import copy
@@ -1473,22 +1473,22 @@ class QuadtreeGPT(BaseModel):
         self.embed_dim = {
                 "small": 768,
                 "base": 1024,
-                "large": 1280,
-                "xlarge": 1536,
+                "large": 1536, # normal: 1280, wider: 1536
+                "xlarge": 2048,
             }[self.model_size]
 
         self.depth = {
                 "small": 12,
                 "base": 24,
-                "large": 36,
-                "xlarge": 48,
+                "large": 24, # normal: 36, wider: 24
+                "xlarge": 24,
             }[self.model_size]
 
         self.num_heads = {
                 "small": 12,
                 "base": 16,
-                "large": 20,
-                "xlarge": 24,
+                "large": 16, # normal: 20, wider: 16
+                "xlarge": 16,
             }[self.model_size]
         
         norm_layer = partial(nn.LayerNorm, eps=1e-6)
@@ -1557,6 +1557,11 @@ class QuadtreeGPT(BaseModel):
                 module.bias.data.zero_()
         elif isinstance(module, nn.Embedding):
             module.weight.data.normal_(mean=0.0, std=std)
+
+        for name, p in self.named_parameters():
+            if name.endswith('wo.weight') or name.endswith('w2.weight'):
+                with torch.no_grad():
+                    p.mul_( (2.0 * self.depth) ** -0.5 )
 
     def _get_ordered_nodes(self, root_node):
         if not root_node:
@@ -1901,5 +1906,5 @@ class QuadtreeGPT(BaseModel):
         for node in ori_ordered_nodes:
             if node.lod_level >= 3:
                 ordered_nodes.append(node)
-        
+
         return result_tokens, ordered_nodes

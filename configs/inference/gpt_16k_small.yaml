@@ -1,9 +1,9 @@
 
 experiment:
     project: "dynamic_tokenizer_generation"
-    name: "gpt_quadtree_large_tokenizerv4"
+    name: "gpt_quadtree_small_tokenizerv4"
     # output_dir: "checkpoints/datacheck/debug"
-    output_dir: "checkpoints/generator/gpt_quadtree_large_tokenizerv4"
+    output_dir: "checkpoints/generator/gpt_quadtree_small_tokenizerv4"
     max_train_examples: 2_562_3340
     save_every: 10_000
     eval_every: 50_000
@@ -43,7 +43,7 @@ model:
     generator_type: "gpt-quadtree"
 
     generator:
-        model_size: "large" # 300M, 700M, 1B
+        model_size: "small" # 300M, 700M, 1B
         patch_size: 1
 
         image_size: 256
@@ -63,8 +63,8 @@ model:
         resid_drop_prob: 0.1
         ffn_drop_prob: 0.1
 
-        guidance_decay: "power-cosine"
-        guidance_scale: 13.0
+        guidance_decay: power-cosine
+        guidance_scale: 12.0
         guidance_scale_pow: 1.1
         randomize_temperature: 1.0
         softmax_temperature_annealing: False
@@ -117,4 +117,4 @@ training:
     use_ema: True
     seed: 42
     max_train_steps: 400_000
-    max_grad_norm: 0.5
+    max_grad_norm: 1.0

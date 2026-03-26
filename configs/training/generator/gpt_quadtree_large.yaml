@@ -1,11 +1,11 @@
 
 experiment:
     project: "dynamic_tokenizer_generation"
-    name: "gpt_quadtree_large_tokenizerv4"
+    name: "gpt_quadtree_large_tokenizerv4_new"
     # output_dir: "checkpoints/datacheck/debug"
-    output_dir: "checkpoints/generator/gpt_quadtree_large_tokenizerv4"
+    output_dir: "checkpoints/generator/gpt_quadtree_large_tokenizerv4_new"
     max_train_examples: 2_562_3340
-    save_every: 10_000
+    save_every: 50_000
     eval_every: 50_000
     generate_every: 1000
     log_every: 50
@@ -116,5 +116,5 @@ training:
     enable_wandb: True
     use_ema: True
     seed: 42
-    max_train_steps: 400_000
+    max_train_steps: 300_000
     max_grad_norm: 0.5

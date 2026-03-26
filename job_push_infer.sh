@@ -3,7 +3,7 @@
 #SBATCH -N 1                    # 申请 1 个节点
 #SBATCH --gres=gpu:8            # 申请 6 张 GPU
 #SBATCH --ntasks-per-node=1     # 每个节点启 1 个任务 (即 1 个 accelerate 实例)
-#SBATCH --cpus-per-task=32      # CPU 核心数 (单机数据加载压力大，建议给足)
+#SBATCH --cpus-per-task=16      # CPU 核心数 (单机数据加载压力大，建议给足)
 #SBATCH -J infer         # 任务名称
 #SBATCH -o logs/inference_generator_%j.out # 日志输出
 
@@ -32,10 +32,10 @@ launcher="accelerate launch \
   --main_process_port=$MASTER_PORT \
   --mixed_precision=bf16 \
   scripts/inference_generator.py \
-  --config configs/inference/gpt_16k_base.yaml \
+  --config configs/inference/gpt_16k_large_wider.yaml \
   --num_samples 50000 \
-  --batch_size 64 \
-  --checkpoint checkpoints/generator/gpt_quadtree_base_tokenizerv4/checkpoint-170000/ema_model/pytorch_model.bin"
+  --batch_size 128 \
+  --checkpoint checkpoints/generator/gpt_quadtree_large_tokenizerv4_new_wider/checkpoint-200000/ema_model/pytorch_model.bin"
 
 echo "Command to run:"
 echo "$launcher"
