@@ -48,11 +48,32 @@ tokenizer to reconstruct arbitrary trees; **content-adaptive** topology selectio
 
 ## 4. How to launch training
 
-**Data** — ImageNet-1K train/val as WebDataset (`.jpg` + `.cls`, 1000/shard):
+**Data — ImageNet-1K → WebDataset (download + convert).** Training uses the **official ImageNet-1K**
+pulled from **HuggingFace** (`ILSVRC/imagenet-1k`, a **gated** dataset → export `HF_TOKEN` first). It is
+**not** a pre-made copy from any S3 bucket. Two scripts download the HF **parquet** shards and convert
+them to **WebDataset** tars — one image per sample, `<key>.jpg` (raw JPEG bytes) + `<key>.cls` (int
+class label), **1000 samples/shard**:
+
 ```bash
-# train (HF ILSVRC/imagenet-1k parquet -> wds tars), ~1470 shards
-python dl_convert_train.py     # -> /sensei-fs-3/users/yuchengm/data/imagenet-wds/train/train-*.tar
+export HF_TOKEN=<your_hf_token>
+python scripts/dl_convert_train.py   # train -> /sensei-fs-3/users/yuchengm/data/imagenet-wds/train/train-000000..001469.tar
+python scripts/dl_convert_val.py     # val   -> /sensei-fs-3/users/yuchengm/data/imagenet-wds/val/val-000000..000049.tar
 ```
+
+Pipeline per script (streaming, disk-bounded, resumable):
+1. `hf_hub_download` fetches **one** parquet at a time (`data/train-{k:05d}-of-00294.parquet`) — never the
+   whole dataset at once.
+2. Rows are streamed out to tars: open a fresh `train-{sidx:06d}.tar` every 1000 images, write `.jpg` +
+   `.cls` per sample.
+3. Each parquet is **deleted** right after conversion, so peak disk ≈ one parquet, not the full set.
+4. `train/_progress.json` records `{next_k, running image count i, last shard sidx}` at every parquet
+   boundary → **exact resume** if the download is interrupted.
+
+Output lands on **sensei-fs, not S3**: `/sensei-fs-3/users/yuchengm/data/imagenet-wds/` — **152 GB**,
+**1470 train shards** (1,281,167 images = the full train split) + **50 val shards** (50,000 images). The
+training config reads these local paths directly (`dataset.type: simple_image`,
+`train_shards_path_or_url: .../train-{000000..001469}.tar`), so **the data path never touches S3** — S3 is
+used only for the checkpoint mirror described next.
 
 **Checkpointing** — checkpoints are written to **local SSD** (`/mnt/localssd/quadtok_3level_out`, off the
 500 GB sensei-fs quota, ephemeral) and continuously **mirrored to S3**; on (re)start the latest checkpoint
