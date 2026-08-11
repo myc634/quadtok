@@ -170,7 +170,22 @@ def create_model(config, logger, accelerator,
             pretrained_tokenizer_weight = {"pixel_" + k:v for k,v in pretrained_tokenizer_weight.items() if not "encoder." in k}
             model_weight.update(pretrained_tokenizer_weight)
 
-        msg = model.load_state_dict(model_weight, strict=False)
+        # Filter shape-mismatched / absent keys so strict=False doesn't error on size
+        # mismatch. Warm-starting a 3-level tokenizer from a 2-level checkpoint keeps the
+        # encoder/backbone/coarse-LOD modules but re-inits conv_out (w//16 -> w//32) and the
+        # new finest-LOD unpatcher/upsampler/token-embedding (absent in the 2-level ckpt).
+        model_sd = model.state_dict()
+        filtered_weight, skipped = {}, []
+        for k, v in model_weight.items():
+            if k in model_sd and model_sd[k].shape == v.shape:
+                filtered_weight[k] = v
+            else:
+                reason = "absent" if k not in model_sd else f"{tuple(v.shape)}->{tuple(model_sd[k].shape)}"
+                skipped.append(f"{k}({reason})")
+        if skipped:
+            logger.info(f"warm-start: skipping {len(skipped)} mismatched/absent keys: {skipped[:12]}"
+                        f"{'...' if len(skipped) > 12 else ''}")
+        msg = model.load_state_dict(filtered_weight, strict=False)
         logger.info(f"loading weight from {config.experiment.init_weight}, msg: {msg}")
 
     # Create the EMA model.

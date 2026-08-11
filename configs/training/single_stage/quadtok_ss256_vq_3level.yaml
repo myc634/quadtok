@@ -1,0 +1,98 @@
+experiment:
+    project: "quadtok_3level"
+    name: "quadtok_3level_tokenizer_scratch"
+    # LOCAL SSD (fast, ephemeral, off the 500GB sensei-fs quota). The launch script mirrors
+    # this dir to S3 (s3://g3i-data/yuchengm/quadtok_3level/...) every few min and pulls the
+    # latest checkpoint back from S3 on (re)start, so training survives localssd destruction.
+    output_dir: "/mnt/localssd/quadtok_3level_out"
+    max_train_examples: 685_800_000
+    save_every: 2_500
+    eval_every: 50_000
+    generate_every: 500
+    log_every: 50
+    log_grad_norm_every: 1_000
+    resume: True
+    use_wandb_id: true   # persist wandb run id (wandb_id.txt) -> auto-resume continues the SAME run
+    # From scratch (no warm-start) per plan.
+    init_weight:
+
+
+model:
+    type: "quadtok"
+    grad_checkpointing: False
+    train_policy: False
+    vq_model:
+      quantize_mode: vq
+      vit_enc_model_size: "small"
+      vit_dec_model_size: "large"
+      vit_enc_patch_size: 16
+      vit_dec_patch_size: 16
+      decoder_token_size: 256
+      codebook_size: 16384
+      use_l2_norm: True
+      commitment_cost: 0.25
+      token_size: 8
+    selector:
+      token_size: 8
+      # 3-level: adds the 32x32 (ps=8) LOD. Tokens live at lod>=3 (8x8 -> 16x16 -> 32x32).
+      num_patch_side_list: [1, 2, 4, 8, 16, 32]
+      patch_size_list: [16, 16, 16, 16, 16, 8]
+      guaranteed_depth: 3
+      # per-LOD expansion probs for the training tree: [lod3->lod4, lod4->lod5].
+      # p0 high (spatial coverage), p1 moderate so the finest ps=8 level is not over-expanded
+      # (max tokens ~1024). Calibrated on 10k images before the production run.
+      expansion_probs: [0.95, 0.7]
+
+
+losses:
+    # From scratch: GAN kicks in after 200k steps (matches the original 2-level recipe).
+    discriminator_start: 200_000
+    quantizer_weight: 1.0
+    discriminator_factor: 1.0
+    discriminator_weight: 0.1
+    perceptual_loss: "lpips-convnext_s-1.0-0.1"
+    perceptual_weight: 1.1
+    reconstruction_loss: "l2"
+    reconstruction_weight: 1.0
+    lecam_regularization_weight: 0.001
+
+dataset:
+    type: "simple_image"
+    params:
+        train_shards_path_or_url: "/sensei-fs-3/users/yuchengm/data/imagenet-wds/train/train-{000000..001469}.tar"
+        eval_shards_path_or_url: "/sensei-fs-3/users/yuchengm/data/imagenet-wds/val/val-{000000..000049}.tar"
+        num_workers_per_gpu: 12
+    preprocessing:
+        resize_shorter_edge: 256
+        crop_size: 256
+        random_crop: True
+        random_flip: True
+        res_ratio_filtering: True
+
+optimizer:
+    name: adamw
+    params:
+        learning_rate: 1e-4
+        discriminator_learning_rate: 1e-4
+        beta1: 0.9
+        beta2: 0.999
+        weight_decay: 1e-4
+
+lr_scheduler:
+    scheduler: "cosine"
+    params:
+        learning_rate: ${optimizer.params.learning_rate}
+        warmup_steps: 10_000
+        end_lr: 1e-5
+
+training:
+    gradient_accumulation_steps: 1
+    per_gpu_batch_size: 64
+    mixed_precision: "bf16"
+    enable_tf32: True
+    enable_wandb: True
+    use_ema: True
+    seed: 42
+    max_train_steps: 350_000
+    num_generated_images: 2
+    max_grad_norm: 1.0

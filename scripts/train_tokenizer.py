@@ -79,8 +79,25 @@ def main():
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
     if accelerator.is_main_process:
-        accelerator.init_trackers(config.experiment.project)
-        accelerator.get_tracker("wandb").run.name = config.experiment.name
+        # use_wandb_id: persist a wandb run id to output_dir/wandb_id.txt and reuse it on
+        # auto-resume so a preempted/restarted job continues the SAME wandb run (resume="allow").
+        wandb_init_kwargs = {}
+        if config.training.enable_wandb and config.experiment.get("use_wandb_id", False):
+            import wandb
+            wandb_id_path = os.path.join(output_dir, "wandb_id.txt")
+            if os.path.exists(wandb_id_path):
+                wandb_run_id = open(wandb_id_path).read().strip()
+                logger.info(f"Reusing wandb run id {wandb_run_id}")
+            else:
+                wandb_run_id = wandb.util.generate_id()
+                with open(wandb_id_path, "w") as f:
+                    f.write(wandb_run_id)
+                logger.info(f"New wandb run id {wandb_run_id}")
+            wandb_init_kwargs = {"wandb": {"id": wandb_run_id, "resume": "allow",
+                                           "name": config.experiment.name}}
+        accelerator.init_trackers(config.experiment.project, init_kwargs=wandb_init_kwargs)
+        if config.training.enable_wandb and not config.experiment.get("use_wandb_id", False):
+            accelerator.get_tracker("wandb").run.name = config.experiment.name
         config_path = Path(output_dir) / "config.yaml"
         logger.info(f"Saving config to {config_path}")
         OmegaConf.save(config, config_path)

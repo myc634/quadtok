@@ -50,6 +50,10 @@ class QuadTok(BaseModel):
         self.num_lod = len(config.model.selector.num_patch_side_list)
         self.num_patch_side_list = config.model.selector.num_patch_side_list
         self.patch_size_list = config.model.selector.patch_size_list
+        # Per-LOD expansion probabilities for the training-time probabilistic quadtree.
+        # 2-level uses [p] (lod3->lod4); 3-level uses [p0, p1] (lod3->lod4, lod4->lod5).
+        self.expansion_probs = list(config.model.selector.get("expansion_probs", [0.75]))
+        self.guaranteed_depth = config.model.selector.get("guaranteed_depth", 3)
 
         self.repa_param = config.losses.get("repa_param", None)
 
@@ -124,8 +128,10 @@ class QuadTok(BaseModel):
 
     def _forward_reconstruction(self, x):
         latent_feats = self.encode(x)
-        # guaranteed_depth=1, expansion_probs=[0.8, 0.7, 0.6, 0.5] guaranteed_depth=2, expansion_probs=[0.7, 0.6, 0.5]
-        tree_structure = build_probabilistic_quadtree(self.num_patch_side_list, guaranteed_depth=3, expansion_probs=[0.75])
+        # 2-level: expansion_probs=[p] (lod3->lod4). 3-level: [p0, p1] (lod3->lod4, lod4->lod5).
+        tree_structure = build_probabilistic_quadtree(
+            self.num_patch_side_list, guaranteed_depth=self.guaranteed_depth,
+            expansion_probs=self.expansion_probs)
         ori_ordered_nodes = self._get_ordered_nodes(tree_structure)
         ordered_nodes = []
         for node in ori_ordered_nodes:
