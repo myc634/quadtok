@@ -825,6 +825,8 @@ class QuadTokDecoder(nn.Module):
         self.num_patch_side_list = config.model.selector.num_patch_side_list
         self.patch_size_list = config.model.selector.patch_size_list
         self.num_lod = len(config.model.selector.num_patch_side_list)
+        # Coarsest token level = base canvas lod (2-level@256 -> 3, 2-level@512 -> 4).
+        self.guaranteed_depth = config.model.selector.get("guaranteed_depth", 3)
         # self.decoder_token_size = config.model.vq_model.decoder_token_size
 
         self.full_tree_root = build_quadtree(self.num_patch_side_list)
@@ -868,7 +870,7 @@ class QuadTokDecoder(nn.Module):
         for lod_idx, num_patches in enumerate(self.num_patch_side_list):
             total_patches = num_patches ** 2
             self.max_seq_len += total_patches
-            if lod_idx >= 3:
+            if lod_idx >= self.guaranteed_depth:
                 self.token_incides_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.width)
 
         scale = self.width ** -0.5
@@ -888,7 +890,7 @@ class QuadTokDecoder(nn.Module):
 
         self.latent_unpatchers = nn.ModuleDict()
         for i in range(self.num_lod):
-            if i >= 3:
+            if i >= self.guaranteed_depth:
                 patch_size = self.patch_size_list[i]
                 out_channels = self.decoder_channels[i]
                 self.latent_unpatchers[str(i)] = nn.Sequential(
@@ -898,19 +900,24 @@ class QuadTokDecoder(nn.Module):
 
         self.upsamplers = nn.ModuleDict()
         for i in range(self.num_lod - 1):
-            if i >= 3:
-                if i < 4:
-                    in_channels = self.decoder_channels[i]
-                    out_channels = self.decoder_channels[i+1]
-                    self.upsamplers[str(i)] = nn.Sequential(#
+            # Upsamplers connect consecutive token levels; base canvas lives at lod == guaranteed_depth.
+            if i >= self.guaranteed_depth:
+                in_channels = self.decoder_channels[i]
+                out_channels = self.decoder_channels[i+1]
+                # Feature-map side length at a lod = patch_size_list[lod] * num_patch_side_list[lod].
+                # Upsampler i->i+1 doubles resolution iff that side length doubles (else same-res refine).
+                # 3-level@256: lod3->lod4 doubles (128->256), lod4->lod5 same (256==256).
+                # 2-level@512: lod4->lod5 doubles (256->512).
+                size_i = self.patch_size_list[i] * self.num_patch_side_list[i]
+                size_next = self.patch_size_list[i + 1] * self.num_patch_side_list[i + 1]
+                if size_next == 2 * size_i:
+                    self.upsamplers[str(i)] = nn.Sequential(
                         nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1),
                         nn.GroupNorm(num_groups=32, num_channels=in_channels),
                         nn.GELU(),
                         nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2))
                 else:
-                    in_channels = self.decoder_channels[i]
-                    out_channels = self.decoder_channels[i+1]
-                    self.upsamplers[str(i)] = nn.Sequential(#
+                    self.upsamplers[str(i)] = nn.Sequential(
                         nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1),
                         nn.GroupNorm(num_groups=32, num_channels=in_channels),
                         nn.GELU(),
@@ -963,11 +970,11 @@ class QuadTokDecoder(nn.Module):
 
         previous_feature_map = None
         for lod_idx in range(self.num_lod):
-            if lod_idx >= 3:
+            if lod_idx >= self.guaranteed_depth:
                 channels = self.decoder_channels[lod_idx]
                 patch_size = self.patch_size_list[lod_idx]
                 num_patches_per_side = self.num_patch_side_list[lod_idx]
-                if lod_idx == 3:
+                if lod_idx == self.guaranteed_depth:
                     upsampled_map = torch.zeros(batch_size, channels, patch_size * num_patches_per_side, patch_size * num_patches_per_side, device=device, dtype=dtype)
                 else:
                     upsampler = self.upsamplers[str(lod_idx - 1)]
@@ -1002,12 +1009,12 @@ class QuadTokDecoder(nn.Module):
         dtype = features.dtype
         previous_feature_map = None
         for lod_idx in range(self.num_lod):
-            if lod_idx < 3:
+            if lod_idx < self.guaranteed_depth:
                 continue
             channels = self.decoder_channels[lod_idx]
             patch_size = self.patch_size_list[lod_idx]
             nps = self.num_patch_side_list[lod_idx]
-            if lod_idx == 3:
+            if lod_idx == self.guaranteed_depth:
                 upsampled_map = torch.zeros(batch_size, channels, patch_size * nps, patch_size * nps,
                                             device=device, dtype=dtype)
             else:
@@ -1097,17 +1104,17 @@ class QuadTokDecoder(nn.Module):
             for node in ordered_nodes:
                 nodes_by_lod[node.lod_level].append(node)
             for lod_idx in range(self.num_lod):
-                if lod_idx >= 3:
+                if lod_idx >= self.guaranteed_depth:
                     all_nodes_by_lod[lod_idx].append(nodes_by_lod[lod_idx])
         
 
         previous_feature_map = None
         for lod_idx in range(self.num_lod):
-            if lod_idx >= 3:
+            if lod_idx >= self.guaranteed_depth:
                 channels = self.decoder_channels[lod_idx]
                 patch_size = self.patch_size_list[lod_idx]
                 num_patches_per_side = self.num_patch_side_list[lod_idx]
-                if lod_idx == 3:
+                if lod_idx == self.guaranteed_depth:
                     upsampled_map = torch.zeros(batch_size, channels, patch_size * num_patches_per_side, patch_size * num_patches_per_side, device=device, dtype=dtype)
                 else:
                     upsampler = self.upsamplers[str(lod_idx - 1)]
@@ -1329,7 +1336,7 @@ class QuadTokDecoder(nn.Module):
         lod_t = torch.tensor(lod_levels, dtype=torch.long, device=device)
         patch_t = torch.tensor(patch_indices, dtype=torch.long, device=device)
         # batched per-LOD token-index embeddings (a few lookups instead of one-per-node)
-        emb_dtype = self.token_incides_embedding_dict["3"].weight.dtype
+        emb_dtype = self.token_incides_embedding_dict[str(self.guaranteed_depth)].weight.dtype
         flat = torch.zeros(lod_t.shape[0], self.width, device=device, dtype=emb_dtype)
         for lod in torch.unique(lod_t).tolist():
             m = lod_t == lod
@@ -1536,6 +1543,8 @@ class QuadTokSelctor(nn.Module):
         self.num_patch_side_list = config.model.selector.num_patch_side_list
         self.image_size = config.dataset.preprocessing.crop_size
         self.num_lod = len(config.model.selector.num_patch_side_list)
+        # Coarsest token level (2-level@256 -> 3, 2-level@512 -> 4).
+        self.guaranteed_depth = config.model.selector.get("guaranteed_depth", 3)
 
         self.model_size = config.model.vq_model.vit_enc_model_size
         self.token_size = config.model.selector.token_size
@@ -1568,7 +1577,7 @@ class QuadTokSelctor(nn.Module):
         for lod_idx, num_patches in enumerate(self.num_patch_side_list):
             total_patches = num_patches ** 2
             self.max_seq_len += total_patches
-            if lod_idx >= 3:
+            if lod_idx >= self.guaranteed_depth:
                 self.token_incides_embedding_dict[str(lod_idx)] = nn.Embedding(total_patches, self.width)
 
         scale = self.width ** -0.5
@@ -1685,7 +1694,7 @@ class QuadTokSelctor(nn.Module):
         lod_t = torch.tensor(lod_levels, dtype=torch.long, device=device)
         patch_t = torch.tensor(patch_indices, dtype=torch.long, device=device)
         # batched per-LOD token-index embeddings (a few lookups instead of one-per-node)
-        emb_dtype = self.token_incides_embedding_dict["3"].weight.dtype
+        emb_dtype = self.token_incides_embedding_dict[str(self.guaranteed_depth)].weight.dtype
         flat = torch.zeros(lod_t.shape[0], self.width, device=device, dtype=emb_dtype)
         for lod in torch.unique(lod_t).tolist():
             m = lod_t == lod

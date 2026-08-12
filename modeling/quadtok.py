@@ -135,7 +135,9 @@ class QuadTok(BaseModel):
         ori_ordered_nodes = self._get_ordered_nodes(tree_structure)
         ordered_nodes = []
         for node in ori_ordered_nodes:
-            if node.lod_level >= 3:
+            # Token levels start at the coarsest guaranteed grid (== guaranteed_depth):
+            # 2-level@256 -> lod>=3 (8x8+16x16); 2-level@512 -> lod>=4 (16x16+32x32).
+            if node.lod_level >= self.guaranteed_depth:
                 ordered_nodes.append(node)
         if self.repa_param is not None: # 
             z, zs = self.selector(latent_feats, ordered_nodes)
