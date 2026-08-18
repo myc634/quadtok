@@ -25,6 +25,22 @@ def batch_apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor):
     return x_out2.type_as(x)
 
 
+def varlen_apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor):
+    """Packed (varlen) rotary. x: (T, n_head, head_dim); freqs_cis: (T, head_dim//2, 2)
+    with per-sample positions (reset at each sample start)."""
+    T, n_head, head_dim = x.shape
+    xshaped = x.float().reshape(T, n_head, head_dim // 2, 2)
+    fc = freqs_cis.view(T, 1, head_dim // 2, 2)
+    out = torch.stack(
+        [
+            xshaped[..., 0] * fc[..., 0] - xshaped[..., 1] * fc[..., 1],
+            xshaped[..., 1] * fc[..., 0] + xshaped[..., 0] * fc[..., 1],
+        ],
+        dim=-1,
+    ).flatten(2)
+    return out.type_as(x)
+
+
 def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
     """
     Precompute the frequency tensor for rotary positional embedding.
@@ -265,6 +281,28 @@ class Attention(nn.Module):
         output = self.resid_dropout(self.wo(output))
         return output
 
+    def forward_varlen(self, x, freqs_cis, cu_seqlens, max_seqlen):
+        """Packed varlen attention (no padding). x: (T, dim); freqs_cis: (T, head_dim//2, 2) with
+        per-sample positions; cu_seqlens: (N+1,) int32; max_seqlen: int. Block-diagonal causal."""
+        from flash_attn import flash_attn_varlen_func
+        T = x.shape[0]
+        kv_size = self.n_kv_head * self.head_dim
+        xq, xk, xv = self.wqkv(x).split([self.dim, kv_size, kv_size], dim=-1)
+        xq = xq.view(T, self.n_head, self.head_dim)
+        xk = xk.view(T, self.n_kv_head, self.head_dim)
+        xv = xv.view(T, self.n_kv_head, self.head_dim)
+        xq = self.q_norm(xq)
+        xk = self.k_norm(xk)
+        if freqs_cis is not None:
+            xq = varlen_apply_rotary_emb(xq, freqs_cis)
+            xk = varlen_apply_rotary_emb(xk, freqs_cis)
+        out = flash_attn_varlen_func(
+            xq, xk, xv, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen,
+            dropout_p=self.attn_dropout_p if self.training else 0.0, causal=True,
+        )  # (T, n_head, head_dim)
+        out = out.reshape(T, self.dim)
+        return self.resid_dropout(self.wo(out))
+
 
 """ Cloned from LLaMAGen: only the attention uses our customized version
 """
@@ -302,6 +340,14 @@ class TransformerBlock(nn.Module):
     ):
         h = x + self.drop_path(
             self.attention(self.attention_norm(x), freqs_cis, start_pos, mask)
+        )
+        out = h + self.drop_path(self.feed_forward(self.ffn_norm(h)))
+        return out
+
+    def forward_varlen(self, x, freqs_cis, cu_seqlens, max_seqlen):
+        """Packed varlen block: (T, dim) in/out; block-diagonal causal attention."""
+        h = x + self.drop_path(
+            self.attention.forward_varlen(self.attention_norm(x), freqs_cis, cu_seqlens, max_seqlen)
         )
         out = h + self.drop_path(self.feed_forward(self.ffn_norm(h)))
         return out

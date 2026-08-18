@@ -1471,21 +1471,21 @@ class QuadtreeGPT(BaseModel):
                 "small": 768,
                 "base": 1024,
                 "large": 1536, # normal: 1280, wider: 1536
-                "xlarge": 2048,
+                "xlarge": 1280,  # LlamaGen-XL 775M
             }[self.model_size]
 
         self.depth = {
                 "small": 12,
                 "base": 24,
                 "large": 24, # normal: 36, wider: 24
-                "xlarge": 24,
+                "xlarge": 36,  # LlamaGen-XL
             }[self.model_size]
 
         self.num_heads = {
                 "small": 12,
                 "base": 16,
                 "large": 16, # normal: 20, wider: 16
-                "xlarge": 16,
+                "xlarge": 20,  # LlamaGen-XL
             }[self.model_size]
         
         norm_layer = partial(nn.LayerNorm, eps=1e-6)
@@ -1762,6 +1762,62 @@ class QuadtreeGPT(BaseModel):
         loss_dict['token_logits'] = token_logits.detach()
         loss_dict['acc'] = acc.detach()
         return total_loss, loss_dict
+
+    def forward_varlen(self, code_indices, lod_indices, patch_indices, labels,
+                       cu_seqlens, seqlens, max_seqlen):
+        """Varlen (packed, NO padding) training forward for flash_attn_varlen.
+        Packed inputs (concatenation of N samples, T = sum of seqlens):
+          code_indices/lod_indices/patch_indices : (T,) long
+          cu_seqlens : (N+1,) int32   seqlens : (N,)   labels : (N,)   max_seqlen : int
+        Per sample the AR sequence is [cls, tok(c0)+s0, ..., tok(c_{L-2})+s_{L-2}] predicting
+        [c0, ..., c_{L-1}]. The parent-aware structural embedding reuses the existing padded
+        get_token_indices_embedding (pad -> embed -> unpad); the transformer runs fully packed."""
+        device = code_indices.device
+        T = int(code_indices.shape[0])
+        N = int(seqlens.shape[0])
+        cu = cu_seqlens.to(torch.int64)
+        seqlens = seqlens.to(torch.int64)
+        sample_id = torch.repeat_interleave(torch.arange(N, device=device), seqlens)      # (T,)
+        pos_in_sample = torch.arange(T, device=device) - cu[:-1][sample_id]                # (T,)
+
+        # structural embedding: pad packed -> (N, max_seqlen), reuse padded path, unpad
+        pad_lod = torch.full((N, max_seqlen), -1, dtype=torch.long, device=device)
+        pad_patch = torch.zeros((N, max_seqlen), dtype=torch.long, device=device)
+        pad_lod[sample_id, pos_in_sample] = lod_indices.long()
+        pad_patch[sample_id, pos_in_sample] = patch_indices.long()
+        struct_pad = self.get_token_indices_embedding(
+            {"lod_indices": pad_lod, "patch_indices": pad_patch})                          # (N, max_seqlen, D)
+        struct = struct_pad[pad_lod != -1]                                                 # (T, D), packed order
+
+        # token embedding + AR input (cls prefix at sample starts, else previous token)
+        tok = self.tok_embeddings(code_indices)                                            # (T, D)
+        code_plus_struct = tok + struct
+        shifted = torch.zeros_like(code_plus_struct)
+        shifted[1:] = code_plus_struct[:-1]                                                # prev token (same sample by construction)
+        cls_emb = self.cls_embedding(labels, train=self.training)[:, 0]                     # (N, D)
+        is_first = torch.zeros(T, dtype=torch.bool, device=device)
+        is_first[cu[:-1]] = True
+        x = torch.where(is_first.unsqueeze(-1), cls_emb[sample_id], shifted)                # (T, D)
+        x = self.tok_dropout(x)
+
+        # per-sample RoPE + packed varlen transformer
+        freqs_cis = self.freqs_cis[pos_in_sample]                                          # (T, head_dim//2, 2)
+        cu32 = cu_seqlens.to(torch.int32)
+        ms = int(max_seqlen)
+        if self.grad_checkpointing and not torch.jit.is_scripting():
+            from torch.utils.checkpoint import checkpoint
+            for block in self.blocks:
+                x = checkpoint(block.forward_varlen, x, freqs_cis, cu32, ms, use_reentrant=False)
+        else:
+            for block in self.blocks:
+                x = block.forward_varlen(x, freqs_cis, cu32, ms)
+
+        x = self.out_norm(x)
+        logits = self.output(x).float()                                                    # (T, vocab)
+        loss = F.cross_entropy(logits, code_indices.long(), reduction="mean")
+        with torch.no_grad():
+            acc = (logits.argmax(-1) == code_indices).float().mean()
+        return loss, {"total_loss": loss.detach(), "acc": acc.detach()}
 
     def cfg_lod_scheduler(self, cfg_scale_base, step, current_lod):
         if current_lod <= 1:
