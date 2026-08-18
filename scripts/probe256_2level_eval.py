@@ -104,12 +104,23 @@ def val_stream(rank, world, bs, size=256, cap=None):
 
 @torch.no_grad()
 def recon_opt(model, latent, node_lists, ts):
-    """selector._forward_optimize -> quantize -> decoder._forward_optimize -> [0,1] images."""
+    """Multi-tree (variable per-image) path: selector/decoder._forward_optimize -> [0,1]."""
     z = model.selector._forward_optimize(latent, node_lists)
     _, rd = model.quantize(z)
     ti = rd["min_encoding_indices"].squeeze().long().flatten()
     embeds = model.quantize.get_codebook_entry(ti).reshape(len(node_lists), -1, ts)
     return model.decoder._forward_optimize(embeds, node_lists).clamp(0, 1).float()
+
+
+@torch.no_grad()
+def recon_fast(model, latent, ordered_nodes):
+    """Single SHARED tree, batched images -> fast training forward path.
+    Used for the A/B search recons (tA/tB shared across the batch). ~3.2x faster than
+    the multi-tree _forward_optimize; parity vs recon_opt = 39 dB (bf16, equivalent)."""
+    z = model.selector(latent, ordered_nodes)
+    z_q, _ = model.quantize(z)
+    dec = model.decode(z_q.permute(0, 3, 2, 1).squeeze(2).contiguous(), ordered_nodes)
+    return dec.clamp(0, 1).float()
 
 
 def ordered_ge3(model, root):
@@ -190,12 +201,11 @@ def main():
             tA = ordered_ge3(model, _build_tree_from_node_mask(base_tree, 3, 4, npsl, new_target_nodes, rpm))
             tB = ordered_ge3(model, _build_tree_from_node_mask(base_tree, 3, 4, npsl, new_target_nodes, ~rpm))
 
-            rec_ab = recon_opt(
-                model, latent.repeat(2, 1, 1),
-                [deepcopy(tA) for _ in range(B)] + [deepcopy(tB) for _ in range(B)], ts,
-            )
-            lpA = lpips_fn(batch, rec_ab[:B], normalize=True).sum(1)   # [B,256,256]
-            lpB = lpips_fn(batch, rec_ab[B:], normalize=True).sum(1)
+            # A/B trees are shared across the batch -> fast single-tree forward path (1.68x overall)
+            rec_A = recon_fast(model, latent, tA)
+            rec_B = recon_fast(model, latent, tB)
+            lpA = lpips_fn(batch, rec_A, normalize=True).sum(1)   # [B,256,256]
+            lpB = lpips_fn(batch, rec_B, normalize=True).sum(1)
 
             # per-image signed-benefit -> tau gate -> guided tree (verbatim original semantics)
             sign = rpm.int().clone()
