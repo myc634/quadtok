@@ -23,9 +23,12 @@ Operating point (tokenizer thresholds): **t1 = 0.004, t2 = 0.021** → ~989 toke
   heads 16), after the FFN-bug fix (§2).
 - **Varlen**: token-packed batches (no padding) + `flash_attn_varlen_func` (block-diagonal
   causal). This is the key speed change vs the original padded dataloader/attention.
+- **Fastest recipe (measured, §5)**: `torch.compile` + no grad-checkpointing @ 65k tok/GPU
+  microbatch + grad_accum 2 → **2.13× faster** (1.00 s/step, 90 GB) at the same ~1024-img global
+  batch. `run_gen_train.sh` encodes it.
 - **New files**: `data/varlen_reader.py`, `train_gen_varlen.py`,
-  `configs/gpt_quadtree_3level.yaml`, `synth_pretok.py` (smoke only),
-  `run_gen_smoke_reuse.sh` / `run_gen_sanity_reuse.sh`.
+  `configs/gpt_quadtree_3level.yaml`, `run_gen_train.sh` (real training launcher),
+  `synth_pretok.py` (smoke only), `run_gen_smoke_reuse.sh` / `run_gen_sanity_reuse.sh`.
 - **Patched files**: `modeling/modules/attention.py` (varlen path + import),
   `modeling/mar.py` (`mlp_ratio 4→1`, `seq_len 512→1408`).
 
@@ -131,11 +134,13 @@ packed + varlen:
   `cat([cond, tok + token_indices_embedding[:, :-1]])`: cls at seq-pos 0, node k's code at
   seq-pos k+1 carrying node k's tree-position, predicting node k's code.
 - **RoPE**: `freqs_cis[local_pos]` → resets per segment.
-- **Attention**: each block called with `cu_seqlens/max_seqlen` → `flash_attn_varlen_func(...,
-  causal=True)` (block-diagonal causal; a token attends only within its own sample). Blocks are
-  gradient-checkpointed when `model.grad_checkpointing`.
+- **Attention**: each block called with `cu_seqlens` + a **constant `max_seqlen=seq_len`** (a
+  valid upper bound → keeps `torch.compile` from re-specializing on the varying max) →
+  `flash_attn_varlen_func(..., causal=True)` (block-diagonal causal; a token attends only within
+  its own sample). Checkpointing is controlled by `--ckpt_every` (block `i` is checkpointed iff
+  `i % ckpt_every == 0`; `0` = none). `--compile` compiles only the non-checkpointed blocks.
 - **Loss**: `F.cross_entropy(output(out_norm(x)), code)` over all T (every packed position is
-  valid — no padding mask needed).
+  valid — no padding mask needed). `--grad_accum N` averages N microbatches per optimizer step.
 
 **Patches applied to `modeling/modules/attention.py`:**
 - Added `from flash_attn import flash_attn_varlen_func` (import guarded).
@@ -145,23 +150,67 @@ packed + varlen:
 
 ---
 
-## 5. Config + launcher
+## 5. Training config, strategy, and the fastest recipe
 
-`configs/gpt_quadtree_3level.yaml` — the exact fields `QuadtreeGPT.__init__` reads
-(`model_size: base`, `num_patch_side_list [1,2,4,8,16,32]`, `patch_size_list [16×5, 8]`,
-`guaranteed_depth 3`, `codebook_size 16384`, dropouts) + a `train:` block
-(`max_tokens_global 1048576`, `lr 4e-4`, wd 0.05, betas (0.9,0.95), warmup 2000, steps 300000).
+### What we're training
+A **3-level content-adaptive image generator**: `QuadtreeGPT` (344M, LlamaGen-L) predicts, in
+coarse→fine slot order, the **VQ code** of every node of a *given* quadtree (tokenizer =
+`yuchengm/quadtok` at operating point t1=0.004/t2=0.021, ~989 tokens/img). It is a **causal
+autoregressive** model with **cross-entropy over the 16384-way codebook** — no diffusion head.
+Class-conditional on ImageNet-1k (1000 classes; a `cls` token starts each sample; CFG via
+`label_drop_prob=0.1`). The tree structure (lod/patch of each node) is supplied by the
+tokenizer's search at pretokenize time; the generator learns only the codes. Data = the
+pretokenized webdataset tars from §1.
 
-Launch (8-GPU, single node):
+### Training strategy
+- **Objective**: next-node code CE (mean over all packed tokens; no padding).
+- **Optimizer**: AdamW, lr 4e-4, betas (0.9, 0.95), weight-decay 0.05; warmup 2000 steps
+  (add cosine decay for the full run), `total_steps` ≈ 300k (~300 ImageNet epochs at this batch).
+- **Precision**: bf16 mixed.
+- **Global batch**: ~1,048,576 tokens ≈ **1024 images/opt-step** (LlamaGen-L family scale;
+  built from a 65,536-tok/GPU microbatch × 8 GPUs × grad_accum 2).
+- **Parallelism**: single 8×H200 node, DDP (varlen packing is per-rank; each rank draws an
+  independent resampled stream).
+- **Packing**: token-budget varlen packing (no padding) + flash-attn varlen (block-diagonal
+  causal), so every token in a pack is a real, loss-bearing token.
+
+### Fastest recipe (measured on 1×8×H200) — **use this**
+`torch.compile` (blocks, dynamic=True) + **no grad-checkpointing** @ 65,536 tok/GPU microbatch
++ **grad_accum 2**. Keeps the ~1024-img global batch; **2.13× faster** than the naive
+ckpt-every-layer + eager path.
+
+| config (all @ ~1024-img global batch) | s/opt-step | peak mem | tok/s/GPU | speedup |
+|---|---|---|---|---|
+| ckpt every layer + eager (naive) | 2.13 s | 45.8 GB | 61,536 | 1.00× |
+| compile + partial ckpt (`ckpt_every=2`) @131k single | 1.58 s | 108.5 GB | 82,957 | 1.35× |
+| compile + `ckpt_every=4` @131k single | ~1.4 s | 139 GB | **OOM-prone** | — |
+| **compile + no-ckpt @65k microbatch + grad_accum 2** | **1.00 s** | **90.1 GB** | **130,432** | **2.13×** |
+
+Why this wins (and why less-checkpointing at the full 131k microbatch does *not*):
+- At 131,072 tok/GPU each layer's activations are ~4 GB, so **without checkpointing 24 layers
+  won't fit 141 GB** — no-ckpt and even `ckpt_every=3` OOM at that microbatch. The low 45.8 GB
+  of the naive path is an artifact of full checkpointing (only 1 layer live), **not** spare room.
+- **`torch.compile` both speeds up and *lowers* memory** (inductor fuses the SwiGLU/norms →
+  fewer materialized tensors), which is what lets **no-ckpt fit at a 65k microbatch (90 GB)**.
+  no-ckpt = zero recompute; compile = fused kernels; grad_accum 2 = restore the 1024-img batch.
+- Variable sequence length does **not** thrash `torch.compile`: `dynamic=True` + a **constant
+  `max_seqlen=seq_len`** passed to flash-varlen keep step time flat (0.51 s across 40+ steps).
+- `compile` is applied **only to non-checkpointed blocks** (compiling a block *inside*
+  `torch.utils.checkpoint` raises `CheckpointError`); with `ckpt_every=0` all 24 blocks compile.
+
+Throughput: ~1,055 img/s/node → **~20 min / ImageNet epoch**, ~300 epochs in **~4.2 days** on
+one node (vs ~9 days for the naive path).
+
+### Launch
 ```bash
 cd /sensei-fs-3/users/yuchengm/code/quadtok/3level
-python -m torch.distributed.run --nproc_per_node 8 --master_port 29513 train_gen_varlen.py \
-  --config configs/gpt_quadtree_3level.yaml \
-  --shards "/PERSISTENT/pretok-{000000..NNNNNN}.tar" \
-  --max_tokens_global 1048576 --steps 300000 --lr 4e-4 --num_workers 4
+SHARDS="/PERSISTENT/pretok-{000000..NNNNNN}.tar" STEPS=300000 bash run_gen_train.sh
 ```
-`train_gen_varlen.py` CLI: `--config --shards --max_tokens_global (default 262144*4) --steps
---lr --num_workers`. Per-GPU token budget = `max_tokens_global / num_processes`.
+`run_gen_train.sh` encodes the recipe: `--max_tokens_global 524288 --grad_accum 2 --ckpt_every 0
+--compile --lr 4e-4`. `train_gen_varlen.py` CLI knobs: `--config --shards --max_tokens_global
+--grad_accum --ckpt_every (0=none,1=every layer,N=every Nth) --compile --steps --lr
+--num_workers`. Per-GPU microbatch = `max_tokens_global / num_processes`; global batch = that ×
+`grad_accum`.
 
 ---
 

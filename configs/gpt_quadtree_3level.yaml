@@ -23,13 +23,20 @@ model:
     resid_drop_prob: 0.1
     ffn_drop_prob: 0.1
 
-# Training (used by train_gen_varlen.py / the real launcher; smoke overrides via CLI).
+# Training recipe = FASTEST measured on 1x 8xH200 (2.13x vs ckpt-every-layer + eager).
+# compile + NO grad-checkpointing @ 65,536 tok/GPU microbatch + grad_accum 2.
+#   -> effective global batch = 65536 * 8 * 2 = 1,048,576 tok (~1024 imgs)
+#   -> 1.00 s/opt-step, 90.1 GB peak, ~130k tok/s/GPU, ~20 min/ImageNet-epoch.
+# run_gen_train.sh passes these as CLI flags (the authoritative entry point).
 train:
   operating_point: [0.004, 0.021]   # tokenizer search thresholds used for pretokenize
-  max_tokens_global: 1048576        # 262144*4 ; per-GPU = this / world_size
+  max_tokens_global: 524288         # microbatch budget = 65536 tok/GPU * 8
+  grad_accum: 2                     # -> effective ~1024-img global batch
+  ckpt_every: 0                     # 0 = NO grad checkpointing (fits at 65k microbatch thanks to compile)
+  compile: true                     # torch.compile the (non-checkpointed) blocks, dynamic=True
   lr: 4.0e-4
   weight_decay: 0.05
   betas: [0.9, 0.95]
   warmup_steps: 2000
-  total_steps: 300000
-  num_workers: 8
+  total_steps: 300000               # ~300 ImageNet epochs at this global batch
+  num_workers: 4

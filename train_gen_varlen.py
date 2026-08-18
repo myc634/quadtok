@@ -43,12 +43,13 @@ def varlen_forward(self, batch):
     x = self.tok_dropout(inp).unsqueeze(0)                # [1,T,D]
     freqs = self.freqs_cis[local_pos].unsqueeze(0)        # [1,T,hd//2,2]
     cu32 = cu.to(torch.int32)
-    use_ckpt = getattr(self, "grad_checkpointing", False) and self.training
-    for blk in self.blocks:
-        if use_ckpt:
-            x = checkpoint(blk, x, freqs, None, None, cu32, max_seqlen, use_reentrant=False)
+    ms = self.seq_len            # constant upper-bound max_seqlen for flash-varlen -> compile-stable
+    ckpt_every = getattr(self, "ckpt_every", 1)          # 1=all ckpt (min mem), 0=none, N=every Nth layer
+    for i, blk in enumerate(self.blocks):
+        if self.training and ckpt_every > 0 and (i % ckpt_every == 0):
+            x = checkpoint(blk, x, freqs, None, None, cu32, ms, use_reentrant=False)
         else:
-            x = blk(x, freqs, start_pos=None, mask=None, cu_seqlens=cu32, max_seqlen=max_seqlen)
+            x = blk(x, freqs, start_pos=None, mask=None, cu_seqlens=cu32, max_seqlen=ms)
     x = self.out_norm(x)[0]                               # [T,D]
     logits = self.output(x).float()                       # [T,V]
     loss = F.cross_entropy(logits, code)
@@ -65,38 +66,60 @@ def main():
     ap.add_argument("--steps", type=int, default=100)
     ap.add_argument("--lr", type=float, default=4e-4)
     ap.add_argument("--num_workers", type=int, default=4)
+    ap.add_argument("--ckpt_every", type=int, default=1,
+                    help="1=checkpoint EVERY layer (min mem); 0=NO checkpointing (max speed); N=checkpoint every Nth layer")
+    ap.add_argument("--compile", action="store_true", help="torch.compile each TransformerBlock (dynamic=True)")
+    ap.add_argument("--grad_accum", type=int, default=1,
+                    help="accumulate N microbatches per optimizer step (keep a large global batch with a small microbatch)")
     args = ap.parse_args()
 
-    acc = Accelerator(mixed_precision="bf16")
+    acc = Accelerator(mixed_precision="bf16", gradient_accumulation_steps=args.grad_accum)
     cfg = OmegaConf.load(args.config)
     model = QuadtreeGPT(cfg)
-    model.grad_checkpointing = bool(cfg.model.get("grad_checkpointing", False))
+    model.ckpt_every = args.ckpt_every
     model.forward = varlen_forward.__get__(model, QuadtreeGPT)   # DDP will wrap this
+    if args.compile:
+        # Compile ONLY blocks that are NOT checkpointed. torch.compile INSIDE
+        # torch.utils.checkpoint -> CheckpointError (saved-tensor count mismatch), so
+        # compiled blocks must never be wrapped in checkpoint().
+        ce = args.ckpt_every
+        n_comp = 0
+        for i in range(len(model.blocks)):
+            is_ckpt = ce > 0 and (i % ce == 0)
+            if not is_ckpt:
+                model.blocks[i] = torch.compile(model.blocks[i], dynamic=True)
+                n_comp += 1
+        print("[compile] compiled %d/%d blocks (the non-checkpointed ones)" % (n_comp, len(model.blocks)), flush=True)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.95), weight_decay=0.05)
     model, opt = acc.prepare(model, opt)
 
     max_tokens_gpu = args.max_tokens_global // acc.num_processes
     if acc.is_main_process:
-        print("world=%d max_tokens_global=%d per_gpu=%d model=%.1fM" % (
+        print("world=%d max_tokens_global=%d per_gpu=%d model=%.1fM ckpt_every=%d compile=%s" % (
             acc.num_processes, args.max_tokens_global, max_tokens_gpu,
-            sum(p.numel() for p in acc.unwrap_model(model).parameters()) / 1e6), flush=True)
+            sum(p.numel() for p in acc.unwrap_model(model).parameters()) / 1e6,
+            args.ckpt_every, args.compile), flush=True)
     ds = VarlenPackedDataset(args.shards, max_tokens_gpu, num_workers_per_gpu=args.num_workers)
 
-    step = 0; t0 = time.time()
+    ga = max(1, args.grad_accum)
+    step = 0; t0 = time.time(); run_loss = 0.0; toks = 0
     for batch in ds.dataloader:
-        loss, a, ntok, nseg = model(batch)
-        acc.backward(loss)
-        opt.step(); opt.zero_grad()
-        torch.cuda.synchronize()
-        if acc.is_main_process:
-            dt = time.time() - t0; t0 = time.time()
-            mem = torch.cuda.max_memory_allocated() / 1e9
-            print("step %3d | loss %.4f acc %.4f | ntok %d nseg %d | %.2fs peakmem %.1fGB" % (
-                step, loss.item(), a.item(), ntok, nseg, dt, mem), flush=True)
-        step += 1
-        if step >= args.steps:
-            break
-    acc.print("SMOKE_DONE loss=%.4f" % loss.item())
+        with acc.accumulate(model):
+            loss, a, ntok, nseg = model(batch)
+            acc.backward(loss / ga)          # mean over the ga microbatches
+            opt.step(); opt.zero_grad()      # gated by accumulate -> only fires on the ga-th
+        run_loss += loss.item(); toks += ntok
+        if acc.sync_gradients:               # True only on the microbatch that actually stepped
+            torch.cuda.synchronize()
+            if acc.is_main_process:
+                dt = time.time() - t0; t0 = time.time()
+                mem = torch.cuda.max_memory_allocated() / 1e9
+                print("step %3d | loss %.4f | ga=%d toks=%d | %.2fs peakmem %.1fGB" % (
+                    step, run_loss / ga, ga, toks, dt, mem), flush=True)
+            step += 1; run_loss = 0.0; toks = 0
+            if step >= args.steps:
+                break
+    acc.print("SMOKE_DONE")
 
 
 if __name__ == "__main__":
