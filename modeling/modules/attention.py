@@ -3,6 +3,11 @@ import torch.nn as nn
 from typing import Optional, List
 from torch.nn import functional as F
 
+try:  # varlen flash-attn for the generator's packed (no-padding) training path
+    from flash_attn import flash_attn_varlen_func
+except ImportError:
+    flash_attn_varlen_func = None
+
 def batch_apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor):
     # x: (bs, seq_len, n_head, head_dim)
     # freqs_cis (bs, seq_len, head_dim // 2, 2)
@@ -202,6 +207,8 @@ class Attention(nn.Module):
         freqs_cis: torch.Tensor = None,
         input_pos: Optional[torch.Tensor] = None,
         mask: Optional[torch.Tensor] = None,
+        cu_seqlens: Optional[torch.Tensor] = None,
+        max_seqlen: Optional[int] = None,
     ):
         """
         during inference:
@@ -229,6 +236,19 @@ class Attention(nn.Module):
         else:
             xq = xq
             xk = xk
+
+        # VARLEN packed path (generator training): bsz==1, seqlen==total_tokens; block-diagonal
+        # causal over samples via cu_seqlens. q/k/v: (1,total,H,hd) -> (total,H,hd) for flash_attn.
+        if cu_seqlens is not None:
+            assert flash_attn_varlen_func is not None, "flash_attn not installed"
+            q, k, v = xq.squeeze(0), xk.squeeze(0), xv.squeeze(0)
+            out = flash_attn_varlen_func(
+                q.to(torch.bfloat16), k.to(torch.bfloat16), v.to(torch.bfloat16),
+                cu_seqlens_q=cu_seqlens, cu_seqlens_k=cu_seqlens,
+                max_seqlen_q=max_seqlen, max_seqlen_k=max_seqlen,
+                dropout_p=self.attn_dropout_p if self.training else 0.0, causal=True,
+            ).reshape(1, -1, self.dim)
+            return self.resid_dropout(self.wo(out.to(x.dtype)))
 
         xq, xk, xv = map(lambda x: x.transpose(1, 2), (xq, xk, xv))
 
@@ -299,9 +319,12 @@ class TransformerBlock(nn.Module):
         freqs_cis: torch.Tensor,
         start_pos: int = None,
         mask: Optional[torch.Tensor] = None,
+        cu_seqlens: Optional[torch.Tensor] = None,
+        max_seqlen: Optional[int] = None,
     ):
         h = x + self.drop_path(
-            self.attention(self.attention_norm(x), freqs_cis, start_pos, mask)
+            self.attention(self.attention_norm(x), freqs_cis, start_pos, mask,
+                           cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
         )
         out = h + self.drop_path(self.feed_forward(self.ffn_norm(h)))
         return out

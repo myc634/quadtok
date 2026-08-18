@@ -1492,7 +1492,10 @@ class QuadtreeGPT(BaseModel):
             }[self.model_size]
         
         norm_layer = partial(nn.LayerNorm, eps=1e-6)
-        mlp_ratio = 4
+        # FFN FIX: FeedForward already computes hidden = int(2/3 * 4*dim); passing
+        # ffn_dim_multiplier=4 double-counted the 4x -> FFN hidden ~11008 (base measured ~947M).
+        # =1 -> hidden ~2816 -> LlamaGen-L (1024/24/16) base = ~343M (~300M target).
+        mlp_ratio = 1
 
         # --------------------------------------------------------------------------
         # VAE and patchify specifics
@@ -1500,10 +1503,24 @@ class QuadtreeGPT(BaseModel):
 
         self.patch_size = config.model.generator.patch_size
 
-        self.seq_len = 512 # maimum quadtree token number
+        # 512 2-level: max quadtree tokens/sample = 256(lod4)+1024(lod5)=1280 (+cls). Under varlen
+        # packing, RoPE positions reset per sample, so freqs_cis need only cover the max SAMPLE
+        # length (not the packed length). 1536 >= 1280 + cls with margin.
+        self.seq_len = 1536 # maximum quadtree token number per sample (was 512 for 256 2-level)
         self.token_embed_dim = config.model.vq_model.token_size * (config.model.generator.patch_size**2)
         self.head_dim = self.embed_dim // self.num_heads
         self.grad_checkpointing = config.model.grad_checkpointing
+        # grad-ckpt granularity: 0 = off (store all activations, fastest, most memory),
+        # k>=1 = checkpoint every k-th block (i%k==0) -> 1/k of layers recomputed. k=1 == full ckpt
+        # (old behavior). Larger k trades the free H200 memory for speed (fewer recomputes).
+        self.grad_ckpt_interval = int(config.model.get("grad_ckpt_interval", 1)) if self.grad_checkpointing else 0
+
+        # Liger fused-linear-cross-entropy: fuse self.output (Linear embed->codebook) + CE so the full
+        # (total_tokens, codebook) fp32 logits (~8.6GB @ 131k tok x 16384) are NEVER materialized ->
+        # large peak-mem save (can unlock a larger grad_ckpt_interval) + speedup. Used only in the
+        # varlen training path (forward_varlen); the padded forward() reference stays vanilla for parity.
+        self.use_liger = bool(config.model.get("use_liger", False))
+        self._flce = None  # lazily-built LigerFusedLinearCrossEntropyLoss (see _head_loss)
 
         # --------------------------------------------------------------------------
         # Class Embedding
@@ -1715,7 +1732,11 @@ class QuadtreeGPT(BaseModel):
         lod_embeddings = self.lod_incides_embedding(lod_indices.clamp(0))
         return embeddings + lod_embeddings
 
-    def forward(self, input_tokens, target_tokens, tree_dict, labels):
+    def forward(self, input_tokens, target_tokens=None, tree_dict=None, labels=None):
+        # VARLEN dispatch: a packed dict (from modeling.varlen_pretok) -> forward_varlen. Routing
+        # through forward() keeps DDP/accelerate grad-sync hooks firing for multi-GPU training.
+        if isinstance(input_tokens, dict):
+            return self.forward_varlen(input_tokens)
         """
         Forward pass for QuadtreeMAR.
         Args:
@@ -1766,6 +1787,125 @@ class QuadtreeGPT(BaseModel):
         loss_dict['token_logits'] = token_logits.detach()
         loss_dict['acc'] = acc.detach()
         return total_loss, loss_dict
+
+    def compile_blocks(self):
+        """torch.compile each TransformerBlock (NOT the whole forward) with dynamic=True. The packed
+        varlen sequence dim (total tokens) is dynamic but max_seqlen is a compile-time constant
+        (self.seq_len), so this compiles ONCE (~50s) and then runs stable as per-step lengths vary --
+        no recompile. Compiling blocks only keeps the host-side pad/scatter loop in forward_varlen eager
+        (compiling that would recompile per batch-size). Call on the raw model BEFORE accelerate.prepare.
+        Beyond speed, inductor fuses elementwise ops -> fewer materialized activations -> lower peak mem
+        (this is what lets no-ckpt fit; see GENERATOR_TRAINING.md). Idempotent-safe: call once."""
+        import torch._dynamo as _dynamo
+        _dynamo.config.cache_size_limit = max(128, _dynamo.config.cache_size_limit)
+        for j in range(len(self.blocks)):
+            self.blocks[j] = torch.compile(self.blocks[j], dynamic=True)
+        return self
+
+    def forward_varlen(self, packed):
+        """VARLEN (packed, no-padding) training forward for flash_attn_varlen. Reuses the exact
+        embedding path of forward() (cls-prepended causal AR + hierarchical token-index posemb),
+        then unpads z to a packed [1,total,dim] sequence and runs the blocks with block-diagonal
+        causal varlen attention (cu_seqlens) + per-sample RoPE. Mathematically == forward() (parity).
+
+        packed (from modeling.varlen_pretok): code[total], lod[total], patch[total], cls[n], seqlens[n].
+        Per sample the AR sequence = [cls, code_0..code_{L-2}] (L positions) predicting code_0..code_{L-1}.
+        """
+        from modeling.varlen_pretok import build_cu_seqlens
+        device = self.freqs_cis.device
+        seqlens = packed["seqlens"].to(device)
+        B = int(seqlens.shape[0]); max_L = int(seqlens.max())  # one sync (needed for tensor shapes)
+        code = packed["code"].to(device); lod = packed["lod"].to(device); patch = packed["patch"].to(device)
+
+        # ---- VECTORIZED unpack flat packed tokens -> padded (B, max_L): NO host-side per-sample Python
+        # loop / no per-sample .item() (the old `for i in range(B): int(seqlens[i])...` did ~B CPU-GPU
+        # syncs each step). offs[b] + arange gathers each sample's slice; `valid` masks the pad tail.
+        offs = torch.zeros(B + 1, dtype=torch.long, device=device); offs[1:] = torch.cumsum(seqlens, 0)
+        ar = torch.arange(max_L, device=device)                       # (max_L,)
+        valid = ar.unsqueeze(0) < seqlens.unsqueeze(1)                 # (B, max_L) True on real tokens
+        gidx = (offs[:-1].unsqueeze(1) + ar.unsqueeze(0)).clamp_(max=code.shape[0] - 1)  # (B,max_L) no sync
+        code_p = torch.where(valid, code[gidx], torch.full_like(gidx, -1))   # pad code = -1
+        lod_p = torch.where(valid, lod[gidx], torch.full_like(gidx, -1))     # pad lod  = -1
+        patch_p = torch.where(valid, patch[gidx], torch.zeros_like(gidx))    # pad patch= 0
+
+        input_tokens = code_p[:, :-1].clone()
+        target_tokens = code_p
+        tree_dict = {"lod_indices": lod_p, "patch_indices": patch_p}
+        labels = packed["cls"].to(device)
+
+        # ---- embeddings: identical math to forward() (get_token_indices_embedding unchanged) ----
+        input_tokens, _ = self.input_preprocess(input_tokens, target_tokens, tree_dict)
+        cond_embeddings = self.cls_embedding(labels, train=self.training)[:, :self.cls_token_num]
+        token_embeddings = self.tok_embeddings(input_tokens)
+        token_indices_embedding = self.get_token_indices_embedding(tree_dict)
+        token_embeddings = torch.cat((cond_embeddings, token_embeddings + token_indices_embedding[:, :-1]), dim=1)
+        z = self.tok_dropout(token_embeddings)  # (B, max_L, dim)
+
+        # ---- unpad -> packed [1, total, dim] + varlen metadata (reuse `valid`; per-sample RoPE
+        # positions are just `ar` selected by `valid` == 0..L_i-1 per sample, in row-major == cu_seqlens
+        # order -> no per-sample arange loop / no .item() sync in per_sample_positions either) ----
+        z = z[valid].unsqueeze(0)                      # (1, total, dim)
+        targets = target_tokens[valid]                 # (total,)
+        positions = ar.unsqueeze(0).expand(B, max_L)[valid]   # (total,) per-sample RoPE positions
+        freqs_cis = self.freqs_cis[positions].unsqueeze(0)
+        cu_seqlens, _ = build_cu_seqlens(seqlens, add_cls=False, device=device)
+
+        # CONSTANT max_seqlen upper bound (self.seq_len=1536 >= any per-sample length, guaranteed by
+        # pretok: 256 lod4 + 1024 lod5 = 1280 max) so torch.compile sees a compile-time constant here
+        # and does NOT recompile as the real max_L varies step to step. flash only uses this as a launch
+        # bound; numerics come from cu_seqlens. Matches the 3-level compile recipe (dynamic on the packed
+        # seqlen dim + constant max_seqlen). Safe/identical for eager too.
+        max_seqlen_c = self.seq_len
+        ckpt_int = getattr(self, "grad_ckpt_interval", 1 if self.grad_checkpointing else 0)
+        for i, block in enumerate(self.blocks):
+            do_ckpt = (ckpt_int > 0) and self.training and (i % ckpt_int == 0) and not torch.jit.is_scripting()
+            if do_ckpt:
+                z = checkpoint(block, z, freqs_cis, None, None, cu_seqlens, max_seqlen_c, use_reentrant=False)
+            else:
+                z = block(z, freqs_cis, start_pos=None, mask=None, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen_c)
+        z = self.out_norm(z).squeeze(0)                # (total, dim)
+        return self._head_loss(z, targets)
+
+    def _get_flce(self):
+        """Lazily build (and cache) the Liger fused-linear-cross-entropy loss module. Fail-fast with a
+        clear install hint if use_liger=True but liger-kernel isn't installed (set use_liger: False in
+        the config to fall back to the vanilla materialized-logits head)."""
+        if self._flce is None:
+            try:
+                from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss
+            except ImportError as e:
+                raise ImportError(
+                    "model.use_liger=True but liger-kernel is not installed. Install it into the training "
+                    "venv:  uv pip install --python <venv>/bin/python liger-kernel   (or set use_liger: "
+                    "False in configs/training/generator/gpt_quadtree_512.yaml)."
+                ) from e
+            self._flce = LigerFusedLinearCrossEntropyLoss()  # reduction='mean', matches F.cross_entropy
+        return self._flce
+
+    @torch.no_grad()
+    def _chunked_acc(self, z_flat, targets, chunk=8192):
+        """Token accuracy without materializing the full (total, codebook) logits: argmax per chunk.
+        Keeps the liger memory win (only chunk*codebook logits live at once). Metric-only (no grad)."""
+        W = self.output.weight  # (V, dim)
+        correct = z_flat.new_zeros((), dtype=torch.long)
+        n = z_flat.shape[0]
+        for s in range(0, n, chunk):
+            pred = (z_flat[s:s + chunk] @ W.t()).argmax(-1)
+            correct = correct + (pred == targets[s:s + chunk]).sum()
+        return correct.float() / max(1, n)
+
+    def _head_loss(self, z_flat, targets):
+        """Output head + cross-entropy on packed (total, dim) hidden states. use_liger -> fused
+        linear-CE (no full-logit materialization, ~8.6GB saved @ 131k tok); else the vanilla
+        materialized-logits path (kept identical to the padded forward() reference for parity)."""
+        if getattr(self, "use_liger", False):
+            loss = self._get_flce()(self.output.weight, z_flat, targets)
+            return loss, {"total_loss": loss.detach(), "acc": self._chunked_acc(z_flat, targets)}
+        logits = self.output(z_flat).float()           # (total, vocab)
+        loss = F.cross_entropy(logits, targets)
+        with torch.no_grad():
+            acc = (logits.argmax(-1) == targets).float().mean()
+        return loss, {"total_loss": loss.detach(), "acc": acc.detach()}
 
     def cfg_lod_scheduler(self, cfg_scale_base, step, current_lod):
         if current_lod <= 1:
