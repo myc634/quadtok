@@ -1492,7 +1492,7 @@ class QuadtreeGPT(BaseModel):
             }[self.model_size]
         
         norm_layer = partial(nn.LayerNorm, eps=1e-6)
-        mlp_ratio = 4
+        mlp_ratio = 1  # FFN fix: SwiGLU already applies 2/3*4; passing 4 double-applies -> hidden 11008 (~947M). 1 -> 2816 = LlamaGen-L ~344M
 
         # --------------------------------------------------------------------------
         # VAE and patchify specifics
@@ -1500,7 +1500,7 @@ class QuadtreeGPT(BaseModel):
 
         self.patch_size = config.model.generator.patch_size
 
-        self.seq_len = 512 # maimum quadtree token number
+        self.seq_len = 1408 # 3-level max quadtree tokens (was 512 for 2-level)
         self.token_embed_dim = config.model.vq_model.token_size * (config.model.generator.patch_size**2)
         self.head_dim = self.embed_dim // self.num_heads
         self.grad_checkpointing = config.model.grad_checkpointing

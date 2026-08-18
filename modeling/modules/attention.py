@@ -2,6 +2,10 @@ import torch
 import torch.nn as nn
 from typing import Optional, List
 from torch.nn import functional as F
+try:
+    from flash_attn import flash_attn_varlen_func
+except Exception:
+    flash_attn_varlen_func = None
 
 def batch_apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor):
     # x: (bs, seq_len, n_head, head_dim)
@@ -202,6 +206,8 @@ class Attention(nn.Module):
         freqs_cis: torch.Tensor = None,
         input_pos: Optional[torch.Tensor] = None,
         mask: Optional[torch.Tensor] = None,
+        cu_seqlens: Optional[torch.Tensor] = None,
+        max_seqlen: Optional[int] = None,
     ):
         """
         during inference:
@@ -211,6 +217,29 @@ class Attention(nn.Module):
             input_pos: [seqlen], used to update KV cache.
             mask: [bsz, seqlen, seqlen], used to mask out attention weights.
         """
+        if cu_seqlens is not None:
+            # ---- VARLEN packed path (flash-attn); x: [1, T, dim] or [T, dim] ----
+            assert flash_attn_varlen_func is not None, "flash_attn not installed"
+            xin = x[0] if x.dim() == 3 else x                    # [T, dim]
+            T = xin.shape[0]
+            kv_size = self.n_kv_head * self.head_dim
+            xq, xk, xv = self.wqkv(xin).split([self.dim, kv_size, kv_size], dim=-1)
+            xq = xq.view(1, T, self.n_head, self.head_dim)
+            xk = xk.view(1, T, self.n_kv_head, self.head_dim)
+            xv = xv.view(1, T, self.n_kv_head, self.head_dim)
+            xq = self.q_norm(xq); xk = self.k_norm(xk)
+            if freqs_cis is not None:
+                xq = batch_apply_rotary_emb(xq, freqs_cis)
+                xk = batch_apply_rotary_emb(xk, freqs_cis)
+            xq = xq[0].to(xv.dtype); xk = xk[0].to(xv.dtype); xv = xv[0]   # [T, H, hd]
+            out = flash_attn_varlen_func(
+                xq, xk, xv, cu_seqlens.to(torch.int32), cu_seqlens.to(torch.int32),
+                int(max_seqlen), int(max_seqlen),
+                dropout_p=self.attn_dropout_p if self.training else 0.0, causal=True)
+            out = out.reshape(T, self.dim)
+            out = self.resid_dropout(self.wo(out))
+            return out.unsqueeze(0) if x.dim() == 3 else out
+
         bsz, seqlen, _ = x.shape
         kv_size = self.n_kv_head * self.head_dim
         xq, xk, xv = self.wqkv(x).split([self.dim, kv_size, kv_size], dim=-1)
@@ -299,9 +328,11 @@ class TransformerBlock(nn.Module):
         freqs_cis: torch.Tensor,
         start_pos: int = None,
         mask: Optional[torch.Tensor] = None,
+        cu_seqlens: Optional[torch.Tensor] = None,
+        max_seqlen: Optional[int] = None,
     ):
         h = x + self.drop_path(
-            self.attention(self.attention_norm(x), freqs_cis, start_pos, mask)
+            self.attention(self.attention_norm(x), freqs_cis, start_pos, mask, cu_seqlens, max_seqlen)
         )
         out = h + self.drop_path(self.feed_forward(self.ffn_norm(h)))
         return out

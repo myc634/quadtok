@@ -1,0 +1,35 @@
+# 3-level QuadtreeGPT generator (LlamaGen-L, ~344M with FFN bug fixed).
+# Model spec = the exact fields QuadtreeGPT.__init__ reads. Verified: 344.0M params,
+# embed 1024 / depth 24 / heads 16 / FFN 2816 / seq_len 1408 / RoPE table 2817.
+# NOTE (FFN bug): mar.py QuadtreeGPT uses mlp_ratio=1 (NOT 4). SwiGLU already applies
+# 2/3*4; passing 4 double-applies -> hidden 11008 (~950M). Do not "restore" it to 4.
+model:
+  grad_checkpointing: true          # blocks wrapped in checkpoint() in the varlen forward
+  vq_model:
+    token_size: 8                   # unused by GPT beyond codebook_size; kept for parity
+    codebook_size: 16384            # CE head width + tok_embeddings rows
+  generator:
+    model_size: base                # -> embed 1024 / depth 24 / heads 16 (LlamaGen-L)
+    patch_size: 1
+    image_size: 256
+    num_patch_side_list: [1, 2, 4, 8, 16, 32]   # 3-level LOD grid sides
+    patch_size_list: [16, 16, 16, 16, 16, 8]
+    guaranteed_depth: 3             # lod>=3 carry tokens (lod3 64 / lod4 256 / lod5 1024)
+    class_num: 1000                 # ImageNet
+    condition_num_classes: 1000
+    label_drop_prob: 0.1            # CFG label dropout in LabelEmbedder
+    token_drop_prob: 0.1
+    attn_dropout: 0.0
+    resid_drop_prob: 0.1
+    ffn_drop_prob: 0.1
+
+# Training (used by train_gen_varlen.py / the real launcher; smoke overrides via CLI).
+train:
+  operating_point: [0.004, 0.021]   # tokenizer search thresholds used for pretokenize
+  max_tokens_global: 1048576        # 262144*4 ; per-GPU = this / world_size
+  lr: 4.0e-4
+  weight_decay: 0.05
+  betas: [0.9, 0.95]
+  warmup_steps: 2000
+  total_steps: 300000
+  num_workers: 8

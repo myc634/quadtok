@@ -141,11 +141,50 @@ def _ab_stage(model, lpips_fn, images, latent, base_trees, target_lod, grid_side
 
 
 @torch.no_grad()
+def recon_correct(model, latent, nodes):
+    """Batched single-tree reconstruction via the verified training path (selector
+    _forward_reconstruction + decode). `nodes` is one ordered node list shared by the batch."""
+    z = model.selector._forward_reconstruction(latent, nodes)
+    zq, _ = model.quantize(z)
+    rec = model.decode(zq.permute(0, 3, 2, 1).squeeze(2).contiguous(), nodes)
+    return rec.clamp(0, 1)
+
+
+@torch.no_grad()
+def _ab_stage_shared(model, lpips_fn, images, latent, base_tree, target_lod, grid_side, pool_k, threshold):
+    """LPIPS A/B split where the A and B trees are SHARED across the batch (stage 1). Uses the
+    batched single-tree path -> 2 recon calls for the whole batch instead of 2B per-image trees."""
+    B = images.shape[0]
+    n_pos = grid_side * grid_side
+    mask = torch.zeros(n_pos, dtype=torch.bool)
+    mask[random.sample(range(n_pos), n_pos // 2)] = True
+    tn = _get_nodes_at_level(base_tree, target_lod)
+    mt = _build_tree_from_node_mask(base_tree, target_lod, target_lod + 1, model.num_patch_side_list, tn, mask)
+    mr = _build_tree_from_node_mask(base_tree, target_lod, target_lod + 1, model.num_patch_side_list, tn, ~mask)
+    nodes_m, nodes_r = olod3(model, mt), olod3(model, mr)
+    rec_m = recon_correct(model, latent, nodes_m).float()
+    rec_r = recon_correct(model, latent, nodes_r).float()
+    lp = lpips_fn(images, rec_m, normalize=True).sum(1)
+    lpr = lpips_fn(images, rec_r, normalize=True).sum(1)
+    pool = nn.AvgPool2d(kernel_size=pool_k, stride=pool_k)
+    mi = mask.int().clone(); mi[~mask] = -1
+    mi = mi.reshape(grid_side, grid_side)
+    trees, olists, diffs = [], [], []
+    for b in range(B):
+        diff = pool((lpr[b] - lp[b]).unsqueeze(0).unsqueeze(0))[0, 0]
+        dm = diff * mi.to(diff.device)
+        pb = (dm >= threshold).flatten().bool()
+        t = _build_tree_from_node_mask(base_tree, target_lod, target_lod + 1, model.num_patch_side_list, tn, pb)
+        trees.append(t); olists.append(olod3(model, t)); diffs.append(dm.flatten())
+    return trees, olists, torch.stack(diffs, 0)
+
+
+@torch.no_grad()
 def guided_search_3level(model, lpips_fn, images, t1, t2):
     latent = model.encode(images)
     B = images.shape[0]
     lod3_tree = build_quadtree(model.num_patch_side_list[:4])   # [1,2,4,8] -> full lod3 (64 nodes)
-    s1_trees, _, d1 = _ab_stage(model, lpips_fn, images, latent, [lod3_tree] * B, 3, 8, 32, t1)
+    s1_trees, _, d1 = _ab_stage_shared(model, lpips_fn, images, latent, lod3_tree, 3, 8, 32, t1)
     s2_trees, s2_ol, d2 = _ab_stage(model, lpips_fn, images, latent, s1_trees, 4, 16, 16, t2)
     return latent, s2_trees, s2_ol, d1, d2
 
