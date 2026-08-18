@@ -6,10 +6,27 @@ Parity: recon cores 45 dB vs node-based; N=2000 search rFID 13.67 vs node 14.07 
 
 Launch:  accelerate launch --num_processes 4 scripts/probe256_2level_tensor_eval.py --tau 0.05 [--cap N]
 """
-import os, sys, argparse, random
+import os, sys, argparse, random, threading, queue
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
 import torch
 import lpips as lpips_pkg
+
+
+def prefetch(gen, n=4):
+    """Background-thread prefetch: JPEG decode (PIL releases the GIL) overlaps GPU compute."""
+    q = queue.Queue(maxsize=n)
+    SENT = object()
+
+    def worker():
+        for x in gen:
+            q.put(x)
+        q.put(SENT)
+    threading.Thread(target=worker, daemon=True).start()
+    while True:
+        x = q.get()
+        if x is SENT:
+            break
+        yield x
 from omegaconf import OmegaConf
 from accelerate import Accelerator
 from modeling.quadtok import QuadTok
@@ -45,7 +62,7 @@ def main():
     rng = random.Random(args.seed + acc.process_index)
 
     seen = 0
-    for batch in val_stream(acc.process_index, acc.num_processes, args.bs, cap=args.cap):
+    for batch in prefetch(val_stream(acc.process_index, acc.num_processes, args.bs, cap=args.cap), n=4):
         batch = batch.to(dev)
         B = batch.shape[0]
         seen += B
