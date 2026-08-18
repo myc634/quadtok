@@ -13,11 +13,11 @@ Operating point (tokenizer thresholds): **t1 = 0.004, t2 = 0.021** → ~989 toke
 
 ## 0. TL;DR
 
-- **Pretokenize** (real, GPU): `scripts/search3_fast.py --mode extract` at (0.004, 0.021).
-  Measured **94 img/s/GPU → ~751 img/s/node** (8×H200). Full ImageNet train (1.28M) ≈
-  **28 min compute / ~30–35 min wall per 8-GPU node** (no decode). Output = webdataset tars
-  with `code_indices.npy / lod_indices.npy / patch_indices.npy / cls` per sample, in
-  slot-order (lod-ascending → valid causal AR order).
+- **Pretokenize** (real, GPU): `scripts/search3_fast.py --mode extract` at (0.004, 0.021) with
+  **REQUIRED aug = center-crop + hflip** (`--hflip 1`, default → 2 views/img: `<key>` + `<key>_flip`).
+  ~94 src-img/s/GPU single-view; with hflip ≈ 2× tokenizations (~half src-img/s, 2× storage).
+  Output = webdataset tars with `code_indices.npy / lod_indices.npy / patch_indices.npy / cls`
+  per sample, in slot-order (lod-ascending → valid causal AR order).
 - **Generator** = `QuadtreeGPT` (`modeling/mar.py`), **causal AR + CE over the 16384 codebook**
   (NOT diffusion; the tree is GIVEN). LlamaGen-L size = **344.0M** (embed 1024 / depth 24 /
   heads 16), after the FFN-bug fix (§2).
@@ -40,6 +40,16 @@ Operating point (tokenizer thresholds): **t1 = 0.004, t2 = 0.021** → ~989 toke
 frozen tokenizer and writes the tree structure + VQ codes. One GPU handles one shard range;
 launch 8 in parallel per node (each GPU independent → near-linear scaling).
 
+> **REQUIRED data augmentation: center-crop + horizontal flip.** The tokenizer is frozen and
+> codes are precomputed, so augmentation must be **baked in at pretokenize time** (you cannot
+> augment discrete codes online). The loader does `Resize(256) → CenterCrop(256)`; `--hflip 1`
+> (default, **keep it on**) additionally re-tokenizes each image's horizontal flip and writes it
+> as a second sample (`<key>` + `<key>_flip`) — 2 views/image. This matches every reference
+> generator: **LlamaGen** (center-crop + hflip by default; optional ten-crop = 10 views),
+> **DiT** (center-crop + hflip), **MAR** (center-crop + caches `moments`+`moments_flip`, random
+> pick). None use random crop or color aug. Cost: 2× tokenizations (~2× pretokenize wall-time,
+> 2× storage). The varlen loader needs no change — it streams both views via ResampledShards.
+
 ```bash
 REPO=/sensei-fs-3/users/yuchengm/code/quadtok/3level
 PY=/sensei-fs-3/users/yuchengm/code/quadtok/base/.venv/bin/python   # python3.10 (training-base image)
@@ -52,7 +62,7 @@ for g in 0 1 2 3 4 5 6 7; do
   lo=$((g*160)); hi=$((g*160+159))     # 160 source shards/GPU for the full set; tune to cover all
   SH=$(printf "/sensei-fs-3/users/yuchengm/data/imagenet-wds/train/train-{%06d..%06d}.tar" $lo $hi)
   CUDA_VISIBLE_DEVICES=$g nohup "$PY" scripts/search3_fast.py --mode extract --weight "$W" \
-    --shards "$SH" --t1 0.004 --t2 0.021 --bs 128 --num_workers 6 \
+    --shards "$SH" --t1 0.004 --t2 0.021 --hflip 1 --bs 128 --num_workers 6 \
     --output_tar "/OUT/pretok-rank$g.tar" > "/tmp/pt_$g.log" 2>&1 &
 done; wait
 ```

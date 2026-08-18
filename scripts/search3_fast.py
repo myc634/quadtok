@@ -108,6 +108,8 @@ def main():
     ap.add_argument("--iters", type=int, default=10); ap.add_argument("--limit", type=int, default=50000)
     ap.add_argument("--num_workers", type=int, default=8); ap.add_argument("--output", default="")
     ap.add_argument("--output_tar", default="")
+    ap.add_argument("--hflip", type=int, default=1,
+                    help="REQUIRED data aug: 1=bake original+horizontal-flip (2 views/img, matches LlamaGen/DiT/MAR); 0=original only")
     args = ap.parse_args()
     dev = torch.device("cuda:0"); random.seed(0); np.random.seed(0); torch.manual_seed(0)
     cfg = OmegaConf.load(args.config)
@@ -172,7 +174,26 @@ def main():
         assert args.output_tar, "--output_tar required"
         os.makedirs(os.path.dirname(args.output_tar), exist_ok=True)
         loader = build_loader(args.shards, args.bs, args.num_workers, want_meta=True)
-        n = 0; _bi = 0; _t0 = None; _n0 = 0
+        n = 0; nw = 0; _bi = 0; _t0 = None; _n0 = 0
+
+        def _emit(tw, imgs, keys, clss, suffix):
+            # Tokenize one (possibly hflipped) batch and write one sample per image.
+            nonlocal nw
+            B = imgs.shape[0]
+            with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+                latent, active = guided_search_fast(model, lpips_sp, imgs, args.t1, args.t2, maps)
+                idx, lod_pad, pat_pad, seqlens = codes_pad_from_active(model, latent, active, maps)
+            codes = idx.reshape(B, -1).long().cpu().numpy()
+            lodp = lod_pad.cpu().numpy(); patp = pat_pad.cpu().numpy(); sl = seqlens.cpu().numpy()
+            for b in range(B):
+                L = int(sl[b])
+                tw.write({"__key__": str(keys[b]) + suffix,
+                          "code_indices.npy": codes[b, :L].astype("int64"),
+                          "lod_indices.npy": lodp[b, :L].astype("int64"),
+                          "patch_indices.npy": patp[b, :L].astype("int64"),
+                          "cls": str(int(clss[b]))})
+                nw += 1
+
         with wds.TarWriter(args.output_tar) as tw:
             for images, keys, clss in loader:
                 images = images.to(dev).float().clamp(0, 1)
@@ -180,25 +201,20 @@ def main():
                 if _bi == 2:
                     torch.cuda.synchronize(); _t0 = time.time(); _n0 = n
                 _bi += 1
-                with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
-                    latent, active = guided_search_fast(model, lpips_sp, images, args.t1, args.t2, maps)
-                    idx, lod_pad, pat_pad, seqlens = codes_pad_from_active(model, latent, active, maps)
-                codes = idx.reshape(B, -1).long().cpu().numpy()
-                lodp = lod_pad.cpu().numpy(); patp = pat_pad.cpu().numpy(); sl = seqlens.cpu().numpy()
-                for b in range(B):
-                    L = int(sl[b])
-                    tw.write({"__key__": str(keys[b]),
-                              "code_indices.npy": codes[b, :L].astype("int64"),
-                              "lod_indices.npy": lodp[b, :L].astype("int64"),
-                              "patch_indices.npy": patp[b, :L].astype("int64"),
-                              "cls": str(int(clss[b]))})
-                    n += 1
+                # REQUIRED data aug (matches LlamaGen/DiT/MAR): center-crop (in build_loader) + hflip.
+                # Frozen tokenizer -> bake BOTH the original and the horizontally-flipped view into the
+                # codes; the flip is RE-tokenized so its quadtree/patch indices are correct.
+                _emit(tw, images, keys, clss, "")
+                if args.hflip:
+                    _emit(tw, torch.flip(images, dims=[-1]), keys, clss, "_flip")
+                n += B
                 if args.limit and n >= args.limit:
                     break
         if _t0 is not None:
             torch.cuda.synchronize(); _dt = time.time() - _t0
-            print("EXTRACT_RATE %.1f img/s (timed %d imgs in %.1fs, after 2 warmup batches)" % ((n - _n0) / _dt, n - _n0, _dt), flush=True)
-        print("EXTRACT_DONE wrote %d samples -> %s" % (n, args.output_tar), flush=True)
+            print("EXTRACT_RATE %.1f src-img/s (timed %d src-imgs in %.1fs, 2 warmup batches; hflip=%d => %d tokenizations)"
+                  % ((n - _n0) / _dt, n - _n0, _dt, int(args.hflip), (n - _n0) * (2 if args.hflip else 1)), flush=True)
+        print("EXTRACT_DONE wrote %d samples from %d src-imgs (hflip=%d) -> %s" % (nw, n, int(args.hflip), args.output_tar), flush=True)
         return
 
     if args.mode == "calib":
