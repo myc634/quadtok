@@ -1554,11 +1554,6 @@ class QuadtreeGPT(BaseModel):
         elif isinstance(module, nn.Embedding):
             module.weight.data.normal_(mean=0.0, std=std)
 
-        for name, p in self.named_parameters():
-            if name.endswith('wo.weight') or name.endswith('w2.weight'):
-                with torch.no_grad():
-                    p.mul_( (2.0 * self.depth) ** -0.5 )
-
     def _get_ordered_nodes(self, root_node):
         if not root_node:
             return []
