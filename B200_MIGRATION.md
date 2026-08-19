@@ -81,8 +81,16 @@ huggingface-cli download yuchengm/quadtok_data \
 
 ## 4. 从头起训
 
+**最省事：用 `scripts/train_b200.sh`**（已固化 `GC=0` + 固定 global batch + 8 卡最快配方），只需给 `CKPT_S3` / `DATA_DIR`：
+```bash
+CKPT_S3=s3://<你的桶>/quadtok_gen_ckpt/gen_700m_b200/ \
+DATA_DIR=/data/quadtok/pretok_2level RUN_NAME=gen_700m_b200 \
+bash scripts/train_b200.sh
+```
+
 **关键：从头训练 = 让 `CKPT_S3` 指向一个空的新位置**，脚本 `latest_step_on_s3()` 找不到 `step_N` 就返回 -1，`start_step=0` 从头开始。
 
+手动展开（等价）：
 ```bash
 export SIZE=xlarge GC=0 RUN_NAME=gen_700m_b200        # B200 显存大，GC=0（见 §5）
 export MAX_TOKEN_GLOBAL=232448                        # ~1024 图/step，保持同 global batch
@@ -107,8 +115,16 @@ accelerate launch --num_processes 8 --num_machines 1 --mixed_precision bf16 \
 
 **① grad 相关（回答「是不是不用开 grad accmu 了」）**
 - **Grad accumulation（梯度累积）**：我们这套 varlen 训练**从来没用过**（accum=1）。global batch 是靠「per-GPU token budget × GPU 数」直接堆出来的，不是靠累积。所以**没有「关掉」这一说**。
-- **Grad checkpointing（激活重算，`GC` 开关）**：这才是之前为 700m 开的东西（`GC=1`），纯粹因为 A100/H100 只有 80 GB。**B200 有 180–192 GB，775M 完全装得下 → 设 `GC=0`**，省掉 backward 的重算，更快。
+- **Grad checkpointing（激活重算，`GC` 开关）**：这才是之前为 700m 开的东西（`GC=1`），纯粹因为 A100/H100 只有 80 GB。**B200 有 180–192 GB，775M 完全装得下 → 设 `GC=0`**，省掉 backward 的重算，快 ~25–30%。
   - 显存粗算（bf16 混合 + AdamW + EMA）：模型 bf16 ~1.5 GB + Adam(m,v) fp32 ~6.2 GB + EMA ~1.5 GB + 梯度 ~1.5 GB + 激活（varlen，per-GPU 29k tokens）≈ 十几 GB。180 GB 绰绰有余。
+  - **已固化进 config**：`configs/inference/gpt_16k_base.yaml` 的 `model.grad_checkpointing` 默认改为 `false`；`train_b200.sh` 也显式 `GC=0`。（80GB 的旧 job 仍可用 `--env GC=1` 覆盖，互不影响。）
+
+**②「固定 global batch 下如何最快用满 1-node B200」**——这正是目标：
+- **用满 8 卡**：global batch 固定 232448，8 卡时每卡只做 `232448/8=29056` tokens，per-GPU 工作量最小 → **每步 wall-clock 最快**（数据并行）。同样 global batch，8×B200 ≈ 4×B200 的 2 倍速。
+- **`GC=0`**：拿 B200 的大显存换掉激活重算 → backward 快 ~25–30%。
+- **数据放本地 NVMe + 多 worker**（`NUM_WORKERS=12`）：B200 算得快，别让 dataloader 拖后腿。
+- per-GPU 29k tokens 只用 ~20GB/180GB，**这是好事**（每卡活少=快）；固定 global batch 下，多出来的显存无法再换成更多速度（除非改 global batch 或减卡数，都与目标冲突）。
+- torch.compile 在 H100 无收益；Blackwell 上可选再测。
 
 **② global batch 保持不变**：想和现有 `gen_700m` 曲线可比，锁死 `MAX_TOKEN_GLOBAL=232448`。B200 显存富余，可选：(a) 用更少 B200（如 4 卡）扛同样 global tokens；(b) 8 卡则显存用不满（没关系，快）。若想加大 batch，调大 `MAX_TOKEN_GLOBAL`（等价改了优化超参，注意）。
 

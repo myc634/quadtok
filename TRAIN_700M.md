@@ -90,7 +90,8 @@ per-GPU token 预算 = `MAX_TOKEN_GLOBAL // (8*NNODES)`，保证任意 GPU 数�
 
 ## 5. 显存 / 吞吐 / GC
 
-- **GC（grad checkpointing）**：80 GB 卡训 700m 必须 `GC=1`（否则 OOM）；**B200/180GB 用 `GC=0` 更快**。
+- **GC（grad checkpointing）**：80 GB 卡训 700m 必须 `GC=1`（否则 OOM）；**B200/180GB 用 `GC=0` 更快 ~25–30%**。config `model.grad_checkpointing` 默认已改 `false`；`GC` env 仍可覆盖（80GB job 传 `GC=1`）。
+- **1-node B200 最快配方**：见 `scripts/train_b200.sh`。固定 global batch 下，**用满 8 卡**（每卡工作量最小 → wall-clock 最快）+ **`GC=0`** + 数据本地 NVMe + `NUM_WORKERS=12`。
 - **Grad accumulation**：本配方**不用**（accum=1）；global batch 靠 token 预算堆，不靠累积。
 - **吞吐参考**：单卡 700m ≈ 13.5k tok/s（H200，含 GC）；B200 无 GC 约 H100 的 2–2.5×。
 - **torch.compile / grad accum**：实测无收益（flash 已融合、accum 线性），**最快 = varlen + 不 compile + 不 accum**。

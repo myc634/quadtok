@@ -16,7 +16,7 @@ tokenizer:
   vae_embed_dim: 8
 model:
   type: quadtok
-  grad_checkpointing: true
+  grad_checkpointing: false
   vq_model:
     quantize_mode: vq
     vit_enc_model_size: small
