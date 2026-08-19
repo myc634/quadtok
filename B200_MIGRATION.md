@@ -11,7 +11,7 @@
 好消息：**当前软件栈本身就支持 B200**。venv 里是 `torch 2.7.1+cu128` + `flash_attn 2.8.3.post1`，torch 的 arch list 已含 `sm_100`（B200）和 `sm_120`。所以不用换 CUDA/torch。三步：
 
 1. B200 机器上**复现依赖**（torch 2.7.1+cu128 / flash-attn 2.8.3 / accelerate 1.14.0）。
-2. 拉 **代码**（GitHub `myc634/quadtok`）+ **数据**（HuggingFace `yuchengm/quadtok_data`, 25 GB）。**不搬 ckpt**。
+2. 拉 **代码**（GitHub `myc634/quadtok`）+ **数据**（HuggingFace `yuchengm/quadtok_data`, 23.4 GB）。**不搬 ckpt**。
 3. `accelerate launch` 从头起训（`start_step=0`）。
 
 ---
@@ -59,23 +59,25 @@ cd quadtok
 
 ---
 
-## 3. 拿数据（HuggingFace，25 GB）
+## 3. 拿数据（HuggingFace，23.4 GB）✅ 已上传
 
-数据已上传到 **`https://huggingface.co/datasets/yuchengm/quadtok_data`**，路径 `pretok_2level/`（1470 个 `train-*.tar`，center+hflip 2× 增广的 2-level 256 tokenizer codes）。
+数据已传到 **`https://huggingface.co/datasets/yuchengm/quadtok_data`** → 路径 `pretok_2level/`
+（**1470 个 `train-*.tar`，共 23.4 GB**，center+hflip 2× 增广的 2-level 256 tokenizer codes）。
 
 ```bash
-export HF_HUB_ENABLE_HF_TRANSFER=1
-export HF_TOKEN=<你的 HF token>      # configs.bash 里的 HUGGINGFACE_TOKEN
+export HF_HUB_ENABLE_HF_TRANSFER=1                 # 关键：加速下载，别省（纯 http 会很慢）
+export HF_TOKEN=<你的 HF read token>               # 私有 repo，下载需对该 repo 有读权限
 
 huggingface-cli download yuchengm/quadtok_data \
   --repo-type dataset --include 'pretok_2level/*' \
   --local-dir /data/quadtok
-# 数据落在 /data/quadtok/pretok_2level/train-*.tar
+# 数据落在 /data/quadtok/pretok_2level/train-*.tar → 训练用 DATA_DIR=/data/quadtok/pretok_2level
 ```
-`hf_transfer` 可跑到 ~500 MB/s+，25 GB 约 1–2 分钟。之后训练用 `DATA_DIR=/data/quadtok/pretok_2level`。
+先装 hf_transfer：`pip install 'huggingface_hub[hf_transfer]'`。25 GB 级数据 1–3 分钟到位。
 
 > 备选：若 B200 机器有该 S3 桶凭证，可直接
 > `s5cmd cp 's3://g3i-data/yuchengm/quadtok_pretok_2level_center_hflip/*' /data/quadtok/pretok_2level/`
+> 数据是**怎么传上 HF 的**（含踩坑）见 §7 附录。
 
 ---
 
@@ -125,8 +127,7 @@ accelerate launch --num_processes 8 --num_machines 1 --mixed_precision bf16 \
 - **数据放本地 NVMe + 多 worker**（`NUM_WORKERS=12`）：B200 算得快，别让 dataloader 拖后腿。
 - per-GPU 29k tokens 只用 ~20GB/180GB，**这是好事**（每卡活少=快）；固定 global batch 下，多出来的显存无法再换成更多速度（除非改 global batch 或减卡数，都与目标冲突）。
 - torch.compile 在 H100 无收益；Blackwell 上可选再测。
-
-**② global batch 保持不变**：想和现有 `gen_700m` 曲线可比，锁死 `MAX_TOKEN_GLOBAL=232448`。B200 显存富余，可选：(a) 用更少 B200（如 4 卡）扛同样 global tokens；(b) 8 卡则显存用不满（没关系，快）。若想加大 batch，调大 `MAX_TOKEN_GLOBAL`（等价改了优化超参，注意）。
+- 想和现有 `gen_700m` 曲线可比就**锁死 `MAX_TOKEN_GLOBAL=232448`**；若哪天想加大 batch，调大它（等价改了优化超参，注意）。
 
 **③ 吞吐**：bf16 下 B200 约 H100 的 2–2.5×。
 
@@ -145,4 +146,27 @@ step 0 loss ~9.x acc ~0.00 lr ... <tok/s>
 
 ---
 
-*数据*：HF `yuchengm/quadtok_data` → `pretok_2level/`（1470 tars, ~25 GB）｜ 原始 S3 `s3://g3i-data/yuchengm/quadtok_pretok_2level_center_hflip/`
+## 7. 附录：数据是怎么传到 HF 的（复现 / 重传用）
+
+pretok 数据在 relay（有 S3 访问权的节点）上，通过 `S3 → localssd → HF` 上传到 `yuchengm/quadtok_data`。三个踩过的坑，重传时照做即可：
+
+1. **必须用 WRITE 权限的 HF token**。只读 token 能 `whoami`、也能 `create_repo(exist_ok=True)`（对已存在 repo 是 no-op，会假装成功），但真正上传/commit 会 **`403 Forbidden`**。去 [settings/tokens](https://huggingface.co/settings/tokens) 建 **Write**（或 fine-grained 勾 `yuchengm/quadtok_data` 写权限）。
+2. **用 `hf_transfer` 加速**。纯 huggingface_hub 上传只有 ~5 MB/s 且会 stall（卡在 11% 不动）；装 `hf_transfer`（Rust 并行分块 + 重试）后 **23 GB ~150s 传完**。venv 无 pip 时：`python3 -m pip install --target=<dir> hf_transfer` + `PYTHONPATH=<dir>` + `export HF_HUB_ENABLE_HF_TRANSFER=1`。
+3. **用 `upload_folder`（批量 LFS），别用 `upload_large_folder`**。后者逐文件调 API，1470 个文件瞬间打爆 HF 的 **1000 请求/5min** 限流（429）；`upload_folder` 一次 commit、批量 LFS，只几次 API 调用。
+
+核心上传代码（token 从 env 读，别写进进程参数，免得 `ps` 泄露）：
+```python
+import os
+from huggingface_hub import HfApi          # 需 env: HF_TOKEN + HF_HUB_ENABLE_HF_TRANSFER=1
+HfApi(token=os.environ["HF_TOKEN"]).upload_folder(
+    repo_id="yuchengm/quadtok_data", repo_type="dataset",
+    folder_path="<local>/pretok_2level", path_in_repo="pretok_2level",
+    commit_message="add pretok_2level tars")
+# 校验：list_repo_files(...) 里 pretok_2level/*.tar 应为 1470
+```
+
+> 小贴士：进度别看 `/proc/<pid>/io` 的 `wchar`——hf_transfer 在 Rust 线程里传，不计入 python 进程的 io，会显得"卡住"。以 `list_repo_files` 的文件数为准。
+
+---
+
+*数据*：HF `yuchengm/quadtok_data` → `pretok_2level/`（**1470 tars, 23.4 GB**）｜ 原始 S3 `s3://g3i-data/yuchengm/quadtok_pretok_2level_center_hflip/`
