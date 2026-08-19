@@ -1,0 +1,132 @@
+# 700M Generator → B200 迁移指南（从头训练）
+
+把 `gen_700m`（QuadtreeGPT xlarge, 775M, varlen 训练）搬到一台 **B200 (Blackwell / sm_100)** 机器，**从头开始训练**（不迁移 checkpoint）。
+
+> 训练配方细节见同目录 [`TRAIN_700M.md`](./TRAIN_700M.md)。本文只讲 **B200 环境搭建 + 数据获取 + 从头起训**。
+
+---
+
+## TL;DR
+
+好消息：**当前软件栈本身就支持 B200**。venv 里是 `torch 2.7.1+cu128` + `flash_attn 2.8.3.post1`，torch 的 arch list 已含 `sm_100`（B200）和 `sm_120`。所以不用换 CUDA/torch。三步：
+
+1. B200 机器上**复现依赖**（torch 2.7.1+cu128 / flash-attn 2.8.3 / accelerate 1.14.0）。
+2. 拉 **代码**（GitHub `myc634/quadtok`）+ **数据**（HuggingFace `yuchengm/quadtok_data`, 25 GB）。**不搬 ckpt**。
+3. `accelerate launch` 从头起训（`start_step=0`）。
+
+---
+
+## 1. B200 环境（Blackwell / sm_100）
+
+硬性要求：CUDA ≥ 12.8、torch ≥ 2.7（cu128）、flash-attn 带 sm_100 kernel。
+
+> ⚠️ Adobe 内部镜像 `docker-matrix-experiments-snapshot.ff.adobe.io/...` 在 Adobe 外拉不到，用公开等价镜像自建。
+
+```bash
+# 基础镜像二选一（都含 CUDA 12.8 + cuDNN9 + torch 2.7.x）
+#   pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
+#   nvcr.io/nvidia/pytorch:25.03-py3   (NGC，已带 Blackwell 优化)
+
+pip install accelerate==1.14.0 omegaconf webdataset einops numpy wandb \
+            'huggingface_hub[hf_transfer]'
+pip install flash-attn==2.8.3.post1 --no-build-isolation
+```
+
+**验证 Blackwell**
+```bash
+python - <<'PY'
+import torch
+print("dev:", torch.cuda.get_device_name(0))     # 期望含 B200
+print("arch:", torch.cuda.get_arch_list())        # 期望含 'sm_100'
+from flash_attn import flash_attn_varlen_func
+print("flash_attn_varlen ok")
+PY
+```
+若 flash-attn 在 sm_100 报 `no kernel image is available` → 针对 Blackwell 源码重编：
+```bash
+TORCH_CUDA_ARCH_LIST="10.0" pip install flash-attn==2.8.3.post1 --no-build-isolation --no-cache-dir
+```
+
+---
+
+## 2. 拿代码
+
+```bash
+git clone -b base-update https://github.com/myc634/quadtok.git
+cd quadtok
+```
+训练入口 `scripts/train_generator_varlen.py`，配置 `configs/inference/gpt_16k_base.yaml`。
+
+---
+
+## 3. 拿数据（HuggingFace，25 GB）
+
+数据已上传到 **`https://huggingface.co/datasets/yuchengm/quadtok_data`**，路径 `pretok_2level/`（1470 个 `train-*.tar`，center+hflip 2× 增广的 2-level 256 tokenizer codes）。
+
+```bash
+export HF_HUB_ENABLE_HF_TRANSFER=1
+export HF_TOKEN=<你的 HF token>      # configs.bash 里的 HUGGINGFACE_TOKEN
+
+huggingface-cli download yuchengm/quadtok_data \
+  --repo-type dataset --include 'pretok_2level/*' \
+  --local-dir /data/quadtok
+# 数据落在 /data/quadtok/pretok_2level/train-*.tar
+```
+`hf_transfer` 可跑到 ~500 MB/s+，25 GB 约 1–2 分钟。之后训练用 `DATA_DIR=/data/quadtok/pretok_2level`。
+
+> 备选：若 B200 机器有该 S3 桶凭证，可直接
+> `s5cmd cp 's3://g3i-data/yuchengm/quadtok_pretok_2level_center_hflip/*' /data/quadtok/pretok_2level/`
+
+---
+
+## 4. 从头起训
+
+**关键：从头训练 = 让 `CKPT_S3` 指向一个空的新位置**，脚本 `latest_step_on_s3()` 找不到 `step_N` 就返回 -1，`start_step=0` 从头开始。
+
+```bash
+export SIZE=xlarge GC=0 RUN_NAME=gen_700m_b200        # B200 显存大，GC=0（见 §5）
+export MAX_TOKEN_GLOBAL=232448                        # ~1024 图/step，保持同 global batch
+export LR=4e-4 END_LR=2e-5 WARMUP=50000 STEPS=400000 SAVE_EVERY=2500 WD=0.05
+export DATA_DIR=/data/quadtok/pretok_2level
+export CKPT_S3=<新的空 ckpt 位置>                      # 从头训 -> 用没有 step_N 的新路径
+export CKPT_LOCAL=/data/ckpt_local
+# 可选 wandb
+export WANDB_KEY=<...> WANDB_ENTITY=<你的 entity> WANDB_PROJECT=quadtok-gen-varlen
+
+accelerate launch --num_processes 8 --num_machines 1 --mixed_precision bf16 \
+  scripts/train_generator_varlen.py
+```
+
+> **⚠️ ckpt 读写走 S3（s5cmd）**：`train_generator_varlen.py` 的 `latest_step_on_s3` / `save_ckpt` 用 `s5cmd`。B200 若连不上 Adobe S3，两种改法：
+> - 把 `CKPT_S3` 指向你自己的 S3/MinIO（零改动）；
+> - 或把 resume/save 改成读写本地目录（`latest_step_on_s3` 改成 `glob` 本地 `step_*`；`save_ckpt` 去掉 S3 上传线程）。约 10 行，见 [`TRAIN_700M.md`](./TRAIN_700M.md) §「脱离 S3」。
+
+---
+
+## 5. B200 专属注意点
+
+**① grad 相关（回答「是不是不用开 grad accmu 了」）**
+- **Grad accumulation（梯度累积）**：我们这套 varlen 训练**从来没用过**（accum=1）。global batch 是靠「per-GPU token budget × GPU 数」直接堆出来的，不是靠累积。所以**没有「关掉」这一说**。
+- **Grad checkpointing（激活重算，`GC` 开关）**：这才是之前为 700m 开的东西（`GC=1`），纯粹因为 A100/H100 只有 80 GB。**B200 有 180–192 GB，775M 完全装得下 → 设 `GC=0`**，省掉 backward 的重算，更快。
+  - 显存粗算（bf16 混合 + AdamW + EMA）：模型 bf16 ~1.5 GB + Adam(m,v) fp32 ~6.2 GB + EMA ~1.5 GB + 梯度 ~1.5 GB + 激活（varlen，per-GPU 29k tokens）≈ 十几 GB。180 GB 绰绰有余。
+
+**② global batch 保持不变**：想和现有 `gen_700m` 曲线可比，锁死 `MAX_TOKEN_GLOBAL=232448`。B200 显存富余，可选：(a) 用更少 B200（如 4 卡）扛同样 global tokens；(b) 8 卡则显存用不满（没关系，快）。若想加大 batch，调大 `MAX_TOKEN_GLOBAL`（等价改了优化超参，注意）。
+
+**③ 吞吐**：bf16 下 B200 约 H100 的 2–2.5×。
+
+**④ flash-attn**：代码用 FA2 的 `flash_attn_varlen_func`（block-diagonal causal，无 padding），2.8.3 API 稳定；§1 验证过 sm_100 kernel 即可，无需改代码。
+
+**⑤ 多机**：单机 8 卡最省心。多台 B200 加 `--num_machines N --machine_rank R --main_process_ip <rank0> --main_process_port <port>`。
+
+---
+
+## 6. 冒烟自检（起训后应看到）
+```
+[train] size=xlarge params=775.xM world=8 ... start_step=0 steps=400000
+step 0 loss ~9.x acc ~0.00 lr ... <tok/s>
+```
+从头训练看到 `start_step=0` + loss 从 ~9.x（ln(codebook=16384)≈9.7）开始下降 = 正常。
+
+---
+
+*数据*：HF `yuchengm/quadtok_data` → `pretok_2level/`（1470 tars, ~25 GB）｜ 原始 S3 `s3://g3i-data/yuchengm/quadtok_pretok_2level_center_hflip/`
