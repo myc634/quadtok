@@ -32,11 +32,47 @@ def build_slot_maps(device):
     return SLOT_LOD, SLOT_PATCH, PARENT4
 
 
-def active_to_padded(active, SLOT_LOD, SLOT_PATCH):
+def compute_slot_rank(model, device):
+    """SLOT_RANK[slot] = position of that (lod,patch) node in the generator's expected order
+    (`_get_ordered_nodes`: BFS grouped by lod) on the FULL 2-level tree. slot = patch (lod3)
+    or 64+patch (lod4). This is the order QuadtreeGPT.generate()/forward_varlen and the original
+    extract_code_searchquadtree.py expect. Sorting active slots by SLOT_RANK reproduces it exactly.
+    NOTE: the tokenizer selector kinship is (lod,patch)-identity based (order-agnostic), so reordering
+    the sequence does NOT change per-node codes; it only fixes the AR sequence order for the generator."""
+    from modeling.utils import build_quadtree, _get_nodes_at_level
+    from scripts.probe256_2level_eval import (
+        coarse_split_permutation, inverse_permutation, _build_tree_from_node_mask, ordered_ge3,
+    )
+    npsl = list(model.num_patch_side_list)
+    base_tree = build_quadtree(npsl[:-1])
+    target_nodes = _get_nodes_at_level(base_tree, 3)
+    new_target_nodes = [target_nodes[i] for i in inverse_permutation(coarse_split_permutation())]
+    full_mask = torch.ones(64, dtype=torch.bool)
+    full_root = _build_tree_from_node_mask(base_tree, 3, 4, npsl, new_target_nodes, full_mask)
+    ordered = ordered_ge3(model, full_root)  # 320 nodes, _get_ordered_nodes order, lod>=3
+    slot_rank = torch.full((320,), 1 << 30, dtype=torch.long)
+    for rank, node in enumerate(ordered):
+        slot = node.patch_index if node.lod_level == 3 else 64 + node.patch_index
+        slot_rank[slot] = rank
+    assert int((slot_rank < (1 << 30)).sum()) == 320 and len(set(slot_rank.tolist())) == 320, \
+        "SLOT_RANK is not a bijection over 320 slots"
+    return slot_rank.to(device)
+
+
+def active_to_padded(active, SLOT_LOD, SLOT_PATCH, SLOT_RANK=None):
+    """active (B,320) bool -> padded (lod_pad, pat_pad, seqlens). If SLOT_RANK given, active slots
+    are ordered by _get_ordered_nodes rank (CORRECT generator order); else legacy slot/spatial order."""
     device = active.device
+    B = active.shape[0]
     seqlens = active.sum(1).long()
     max_seq = int(seqlens.max().item())
-    order = torch.argsort(active.int(), dim=1, descending=True, stable=True)
+    if SLOT_RANK is None:
+        order = torch.argsort(active.int(), dim=1, descending=True, stable=True)  # legacy slot order
+    else:
+        BIG = 1 << 30
+        key = torch.where(active.bool(), SLOT_RANK[None, :].expand(B, -1),
+                          torch.full((B, active.shape[1]), BIG, dtype=torch.long, device=device))
+        order = torch.argsort(key, dim=1, stable=True)  # active by _get_ordered_nodes rank, padding last
     sel = order[:, :max_seq]
     lod_pad = SLOT_LOD[sel]; pat_pad = SLOT_PATCH[sel]
     posmask = torch.arange(max_seq, device=device)[None, :] < seqlens[:, None]

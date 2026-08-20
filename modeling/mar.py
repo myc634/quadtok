@@ -72,7 +72,7 @@ class MAR(BaseModel):
             }[self.model_size]
         
         norm_layer = partial(nn.LayerNorm, eps=1e-6)
-        mlp_ratio = 1  # base-update FFN fix: SwiGLU FeedForward already does 4*dim; passing 4 double-counted -> 4x oversized
+        mlp_ratio = 1
         # --------------------------------------------------------------------------
         # VAE and patchify specifics
         self.vae_embed_dim = config.tokenizer.vae_embed_dim
@@ -1489,7 +1489,7 @@ class QuadtreeGPT(BaseModel):
             }[self.model_size]
         
         norm_layer = partial(nn.LayerNorm, eps=1e-6)
-        mlp_ratio = 1  # base-update FFN fix: SwiGLU FeedForward already does 4*dim; passing 4 double-counted -> 4x oversized
+        mlp_ratio = self.model_config.get("mlp_ratio", 1)  # config override (old drive ckpt=4); default 1 = base-update fix
         # --------------------------------------------------------------------------
         # VAE and patchify specifics
         self.vae_embed_dim = config.model.vq_model.token_size

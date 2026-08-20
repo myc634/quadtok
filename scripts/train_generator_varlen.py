@@ -111,10 +111,22 @@ def main():
                 os.makedirs(d, exist_ok=True); s5("cp", f"{ckpt_s3}step_{last}/*", d + "/")
             acc.wait_for_everyone()
             acc.load_state(os.path.join(d, "state"))
-            meta = torch.load(os.path.join(d, "meta.pt"), map_location="cpu")
-            ema.load_state_dict(meta["ema"]); start_step = meta["step"]
-            if acc.is_main_process:
-                print(f"[resume] from step {start_step}", flush=True)
+            meta_path = os.path.join(d, "meta.pt")
+            if os.path.exists(meta_path):
+                meta = torch.load(meta_path, map_location="cpu")
+                ema.load_state_dict(meta["ema"]); start_step = meta["step"]
+                if acc.is_main_process:
+                    print(f"[resume] from step {start_step}", flush=True)
+            else:
+                # meta.pt missing on S3 (async dir-upload dropped the tiny meta.pt on a
+                # preempt while state/ made it up). Tolerate instead of crash-looping:
+                # model/opt/RNG are already restored from state/; take the step from the
+                # ckpt dir name and re-init EMA from the restored weights (EMA re-warms).
+                start_step = last
+                ema.load_state_dict(acc.unwrap_model(model).state_dict())
+                if acc.is_main_process:
+                    print(f"[resume] meta.pt MISSING for step_{last}; model/opt restored from "
+                          f"state/, EMA re-init from model, start_step={start_step}", flush=True)
     ema = ema.to(dev)
 
     if acc.is_main_process:

@@ -7,7 +7,7 @@ Codes are tiny (~2 KB/sample). Background-thread prefetch overlaps JPEG decode w
 
 accelerate launch --num_processes 8 scripts/pretokenize_train.py --out_dir <dir> [--shards A B] [--crop center|random]
 """
-import os, sys, io, glob, tarfile, random, argparse, threading, queue, time
+import os, sys, io, glob, tarfile, random, argparse, threading, queue, time, subprocess
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
 import numpy as np
 import torch
@@ -19,7 +19,7 @@ from accelerate import Accelerator
 import webdataset as wds
 from modeling.quadtok import QuadTok
 from data.augmentation import center_crop_arr
-from scripts.bench256_tensor import build_slot_maps, active_to_padded, guided_search_fast
+from scripts.bench256_tensor import build_slot_maps, active_to_padded, guided_search_fast, compute_slot_rank
 from scripts.probe256_2level_eval import CFG_DEFAULT, CKPT_DEFAULT
 
 TRAIN_DIR = "/sensei-fs-3/users/yuchengm/data/imagenet-wds/train"
@@ -88,9 +88,9 @@ def shard_stream(tar_path, bs, aug):
 
 
 @torch.no_grad()
-def extract_codes(model, latent, active, maps, ts):
-    """Final guided tree -> per-token VQ codes (no decode)."""
-    lod_pad, pat_pad, seqlens = active_to_padded(active, maps[0], maps[1])
+def extract_codes(model, latent, active, maps, ts, slot_rank=None):
+    """Final guided tree -> per-token VQ codes (no decode), emitted in _get_ordered_nodes order (slot_rank)."""
+    lod_pad, pat_pad, seqlens = active_to_padded(active, maps[0], maps[1], slot_rank)
     z = model.selector._select_optimize_core(latent, lod_pad, pat_pad, seqlens)
     _, rd = model.quantize(z)
     codes = rd["min_encoding_indices"].reshape(active.shape[0], -1)  # (B, max_seq)
@@ -108,6 +108,7 @@ def main():
     ap.add_argument("--cfg", default=CFG_DEFAULT)
     ap.add_argument("--ckpt", default=CKPT_DEFAULT)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--s3_out", default=None, help="if set, skip shards already on S3 and upload each finished shard tar to this S3 prefix (resume-safe)")
     args = ap.parse_args()
 
     acc = Accelerator()
@@ -122,6 +123,7 @@ def main():
     model.load_state_dict(torch.load(args.ckpt, map_location="cpu"), strict=False)
     lpips_fn = lpips_pkg.LPIPS(net="vgg", spatial=True).to(dev).eval()
     maps = build_slot_maps(dev)
+    slot_rank = compute_slot_rank(model, dev)  # _get_ordered_nodes order (generator-correct)
 
     all_tars = sorted(glob.glob(f"{TRAIN_DIR}/train-*.tar"))
     if args.shards is not None:
@@ -132,9 +134,18 @@ def main():
 
     rng = random.Random(args.seed + rank)
     n_done = 0
+    def _s3_exists(uri):
+        return subprocess.run(["s5cmd", "ls", uri], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL).returncode == 0
+
     for tar_path in my_tars:
         shard_idx = int(os.path.basename(tar_path).split("-")[1].split(".")[0])
         out_path = os.path.join(args.out_dir, f"train-{shard_idx:06d}.tar")
+        if args.s3_out:
+            s3_tar = args.s3_out.rstrip("/") + f"/train-{shard_idx:06d}.tar"
+            if _s3_exists(s3_tar):
+                print(f"[rank{rank}] skip shard {shard_idx:06d} (already on S3)", flush=True)
+                continue
         tmp_path = out_path + ".tmp"
         writer = wds.TarWriter(tmp_path)
         n_shard, tok_sum = 0, 0
@@ -143,7 +154,7 @@ def main():
             images = images.to(dev)
             with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
                 latent, active = guided_search_fast(model, lpips_fn, images, args.tau, maps, rng)
-                codes, lod_pad, pat_pad, seqlens = extract_codes(model, latent, active, maps, ts)
+                codes, lod_pad, pat_pad, seqlens = extract_codes(model, latent, active, maps, ts, slot_rank)
             codes = codes.cpu().numpy(); lodp = lod_pad.cpu().numpy(); patp = pat_pad.cpu().numpy()
             sl = seqlens.cpu().numpy()
             for b in range(len(keys)):
@@ -158,6 +169,9 @@ def main():
                 n_shard += 1; tok_sum += L
         writer.close()
         os.replace(tmp_path, out_path)
+        if args.s3_out:
+            subprocess.run(["s5cmd", "cp", out_path, args.s3_out.rstrip("/") + "/"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         n_done += n_shard
         dt = time.perf_counter() - t_shard
         print(f"[rank{rank}] shard {shard_idx:06d}: {n_shard} samples in {dt:.1f}s "
