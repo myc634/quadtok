@@ -20,15 +20,31 @@ def build_slot_maps(device):
     SLOT_PATCH = torch.cat([torch.arange(lod3), torch.arange(lod4), torch.arange(lod5)]).to(device).long()
     j = torch.arange(lod4); PARENT4 = ((j // 16 // 2) * 8 + (j % 16 // 2)).to(device).long()     # lod4->lod3 patch
     k = torch.arange(lod5); PARENT5 = ((k // 32 // 2) * 16 + (k % 32 // 2)).to(device).long()    # lod5->lod4 patch
-    return SLOT_LOD, SLOT_PATCH, PARENT4, PARENT5
+    # SLOT_RANK[slot] = rank of that slot in the generator's CANONICAL order (BFS-by-lod ==
+    # QuadtreeGPT._get_ordered_nodes / tree_to_decision_nodes_dict). active_to_padded emits tokens
+    # in THIS order so pretok/train match generate() (spatial slot order != BFS -> AR breaks).
+    from modeling.utils import build_quadtree, tree_to_decision_nodes_dict
+    off = {3: 0, 4: lod3, 5: lod3 + lod4}
+    final = tree_to_decision_nodes_dict(build_quadtree([1, 2, 4, 8, 16, 32]), 6)
+    rank = torch.full((lod3 + lod4 + lod5,), -1, dtype=torch.long)
+    r = 0
+    for lod in range(6):
+        for nd in final.get(lod, []):
+            if nd.lod_level >= 3:
+                rank[off[nd.lod_level] + nd.patch_index] = r; r += 1
+    assert r == lod3 + lod4 + lod5 and bool((rank >= 0).all()), "SLOT_RANK build failed"
+    SLOT_RANK = rank.to(device)
+    return SLOT_LOD, SLOT_PATCH, PARENT4, PARENT5, SLOT_RANK
 
 
-def active_to_padded(active, SLOT_LOD, SLOT_PATCH):
-    """active (B,1344) bool -> compact padded (lod_pad,pat_pad,seqlens), fully vectorized."""
+def active_to_padded(active, SLOT_LOD, SLOT_PATCH, SLOT_RANK):
+    """active (B,1344) bool -> compact padded (lod_pad,pat_pad,seqlens) in generator BFS order."""
     device = active.device
     seqlens = active.sum(1).long()
     max_seq = int(seqlens.max().item())
-    order = torch.argsort(active.int(), dim=1, descending=True, stable=True)   # active first, slot order
+    N = SLOT_RANK.shape[0]
+    key = SLOT_RANK[None, :] + (~active).long() * (N + 1)     # active-by-BFS-rank first, inactive last
+    order = torch.argsort(key, dim=1)
     sel = order[:, :max_seq]
     lod_pad = SLOT_LOD[sel]; pat_pad = SLOT_PATCH[sel]
     posmask = torch.arange(max_seq, device=device)[None, :] < seqlens[:, None]
@@ -39,8 +55,8 @@ def active_to_padded(active, SLOT_LOD, SLOT_PATCH):
 
 @torch.no_grad()
 def codes_pad_from_active(model, latent, active, maps):
-    SLOT_LOD, SLOT_PATCH = maps[0], maps[1]
-    lod_pad, pat_pad, seqlens = active_to_padded(active, SLOT_LOD, SLOT_PATCH)
+    SLOT_LOD, SLOT_PATCH, SLOT_RANK = maps[0], maps[1], maps[4]
+    lod_pad, pat_pad, seqlens = active_to_padded(active, SLOT_LOD, SLOT_PATCH, SLOT_RANK)
     z = model.selector._select_optimize_core(latent, lod_pad, pat_pad, seqlens)
     _, rd = model.quantize(z)
     return rd["min_encoding_indices"], lod_pad, pat_pad, seqlens
@@ -60,7 +76,7 @@ def _ones3(B, device):
 
 @torch.no_grad()
 def guided_search_fast(model, lpips_fn, images, t1, t2, maps):
-    SLOT_LOD, SLOT_PATCH, PARENT4, PARENT5 = maps
+    SLOT_LOD, SLOT_PATCH, PARENT4, PARENT5, SLOT_RANK = maps
     device = images.device; B = images.shape[0]
     latent = model.encode(images)
     z16 = torch.zeros(B, 1024, dtype=torch.bool, device=device)
@@ -127,7 +143,7 @@ def main():
         with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
             latent = model.encode(images)
             # random active mask (with lod5), recon via tensor path vs node-based correct path
-            SLOT_LOD, SLOT_PATCH, PARENT4, PARENT5 = maps
+            SLOT_LOD, SLOT_PATCH, PARENT4, PARENT5, SLOT_RANK = maps
             e3 = torch.rand(B, 64, device=dev) < 0.9
             lod4a = e3[:, PARENT4]
             e4 = lod4a & (torch.rand(B, 256, device=dev) < 0.7)

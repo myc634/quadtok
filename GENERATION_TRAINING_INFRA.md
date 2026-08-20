@@ -17,7 +17,9 @@ Operating point (tokenizer thresholds): **t1 = 0.004, t2 = 0.021** → ~989 toke
   **REQUIRED aug = center-crop + hflip** (`--hflip 1`, default → 2 views/img: `<key>` + `<key>_flip`).
   ~94 src-img/s/GPU single-view; with hflip ≈ 2× tokenizations (~half src-img/s, 2× storage).
   Output = webdataset tars with `code_indices.npy / lod_indices.npy / patch_indices.npy / cls`
-  per sample, in slot-order (lod-ascending → valid causal AR order).
+  per sample, in the generator's **canonical order** (`_get_ordered_nodes` = BFS-by-lod:
+  lod-ascending, within-lod Z-order — NOT spatial). `active_to_padded` sorts slots by a
+  precomputed `SLOT_RANK` so pretok matches `generate()` (critical — see §1).
 - **Generator** = `QuadtreeGPT` (`modeling/mar.py`), **causal AR + CE over the 16384 codebook**
   (NOT diffusion; the tree is GIVEN). LlamaGen-L size = **344.0M** (embed 1024 / depth 24 /
   heads 16), after the FFN-bug fix (§2).
@@ -42,7 +44,9 @@ launch 8 in parallel per node (each GPU independent → near-linear scaling).
 
 > **REQUIRED data augmentation: center-crop + horizontal flip.** The tokenizer is frozen and
 > codes are precomputed, so augmentation must be **baked in at pretokenize time** (you cannot
-> augment discrete codes online). The loader does `Resize(256) → CenterCrop(256)`; `--hflip 1`
+> augment discrete codes online). The loader does `Resize(256, BICUBIC, antialias=True) →
+> CenterCrop(256)` (BICUBIC matches the tokenizer's TRAINING resize — not the repo's BILINEAR
+> eval_transform); `--hflip 1`
 > (default, **keep it on**) additionally re-tokenizes each image's horizontal flip and writes it
 > as a second sample (`<key>` + `<key>_flip`) — 2 views/image. This matches every reference
 > generator: **LlamaGen** (center-crop + hflip by default; optional ten-crop = 10 views),
@@ -75,7 +79,11 @@ done; wait
   authoritative tokenizer; `snapshot_download` it to a persistent dir once and reuse.
 - **Output format (per sample)**: tar members `<key>.code_indices.npy` (int64 [T]),
   `<key>.lod_indices.npy` (int64 [T]), `<key>.patch_indices.npy` (int64 [T]), `<key>.cls`
-  (utf-8 int). `T` ≈ 989 at (0.004,0.021); nodes are in **slot-order** (all lod3, then lod4,
+  (utf-8 int). `T` ≈ 989 at (0.004,0.021); nodes are in the generator's **canonical BFS order**
+  (`_get_ordered_nodes`/`tree_to_decision_nodes_dict`: lod-ascending, within-lod Z-order — NOT
+  spatial patch order; `active_to_padded` sorts by `SLOT_RANK` to match `generate()`). Was buggy
+  spatial-slot order before (only 40/1344 slots matched the generator → AR would break). Lod is
+  still monotonic (all lod3, then lod4,
   then lod5) → lod is monotonic non-decreasing → a valid coarse→fine causal AR order.
 
 ---
@@ -164,7 +172,7 @@ packed + varlen:
 
 ### What we're training
 A **3-level content-adaptive image generator**: `QuadtreeGPT` (344M, LlamaGen-L) predicts, in
-coarse→fine slot order, the **VQ code** of every node of a *given* quadtree (tokenizer =
+coarse→fine canonical (BFS) order, the **VQ code** of every node of a *given* quadtree (tokenizer =
 `yuchengm/quadtok` at operating point t1=0.004/t2=0.021, ~989 tokens/img). It is a **causal
 autoregressive** model with **cross-entropy over the 16384-way codebook** — no diffusion head.
 Class-conditional on ImageNet-1k (1000 classes; a `cls` token starts each sample; CFG via
@@ -269,8 +277,9 @@ cleanly (`SANITY_EXIT 0`, loss 9.70 at init).
    budget divides by total world size.
 
 **Not yet done (real-run TODOs, out of smoke scope):** checkpoint save/resume, W&B, LR schedule
-(warmup+cosine), and switching `generate()`'s inference node ordering to slot-order for
-train/inference consistency.
+(warmup+cosine). NOTE: train/inference node-order consistency is now handled at pretok
+(`active_to_padded` emits the generator's canonical BFS order via `SLOT_RANK`), so `generate()`
+needs no change — do NOT re-introduce spatial-slot order in the pretok.
 
 ---
 

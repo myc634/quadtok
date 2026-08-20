@@ -190,7 +190,10 @@ def guided_search_3level(model, lpips_fn, images, t1, t2):
 
 
 def build_loader(shards, bs, workers, want_meta=False):
-    tf = T.Compose([T.Resize(256), T.CenterCrop(256), T.ToTensor()])
+    # Match the tokenizer's TRAINING resize (ImageTransform: BICUBIC + antialias), NOT the repo's
+    # eval_transform (plain BILINEAR) -- pretok feeds the frozen tokenizer, so use train-distribution.
+    tf = T.Compose([T.Resize(256, interpolation=T.InterpolationMode.BICUBIC, antialias=True),
+                    T.CenterCrop(256), T.ToTensor()])
     pipe = [wds.SimpleShardList(shards), wds.split_by_worker,
             wds.tarfile_to_samples(handler=wds.warn_and_continue),
             wds.decode(wds.autodecode.ImageHandler("pil", extensions=["jpg", "jpeg", "png", "webp"]), handler=wds.warn_and_continue),
