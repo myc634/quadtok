@@ -203,10 +203,12 @@ def main():
             lodp = lod_pad.cpu().numpy(); patp = pat_pad.cpu().numpy(); sl = seqlens.cpu().numpy()
             for b in range(B):
                 L = int(sl[b])
+                # compact dtypes (loader upcasts via .long()): code 0..16383 -> int16,
+                # patch 0..1023 -> int16, lod {3,4,5} -> int8. ~5x smaller than int64 for HF.
                 tw.write({"__key__": str(keys[b]) + suffix,
-                          "code_indices.npy": codes[b, :L].astype("int64"),
-                          "lod_indices.npy": lodp[b, :L].astype("int64"),
-                          "patch_indices.npy": patp[b, :L].astype("int64"),
+                          "code_indices.npy": codes[b, :L].astype("int16"),
+                          "lod_indices.npy": lodp[b, :L].astype("int8"),
+                          "patch_indices.npy": patp[b, :L].astype("int16"),
                           "cls": str(int(clss[b]))})
                 nw += 1
 

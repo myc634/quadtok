@@ -38,6 +38,21 @@ Operating point (tokenizer thresholds): **t1 = 0.004, t2 = 0.021** → ~989 toke
 
 ## 1. Pretokenization (real data)
 
+> **📦 THE PRE-TOKENIZED DATA IS ALREADY PUBLISHED — pull it, don't re-run this section.**
+> Full ImageNet-train, pretokenized with the exact (fixed) pipeline below, is on HF:
+> **`yuchengm/quadtok_data` → `pretok_3level/`** — 147 gzip shards, ~6 GB, **2.56M samples**
+> (1.28M imgs × hflip 2 views). Pull once, then train:
+> ```bash
+> hf download yuchengm/quadtok_data --repo-type dataset \
+>     --include "pretok_3level/*.tar.gz" --local-dir /YOUR/DIR
+> # (or python: snapshot_download("yuchengm/quadtok_data", repo_type="dataset",
+> #             allow_patterns=["pretok_3level/*"], local_dir="/YOUR/DIR"))
+> # -> /YOUR/DIR/pretok_3level/pretok-c{0000..0146}.tar.gz   (varlen_reader reads .tar.gz directly)
+> ```
+> Baked in: operating point **(0.004, 0.021)** ~972 tok/img; generator **canonical BFS order**
+> (SLOT_RANK); **center-crop(BICUBIC) + hflip** (2 views/img); **int16/int8** codes. Only re-run
+> the extract below if you change the tokenizer weight or operating point.
+
 `scripts/search3_fast.py --mode extract` runs the two-stage content-adaptive tree search on a
 frozen tokenizer and writes the tree structure + VQ codes. One GPU handles one shard range;
 launch 8 in parallel per node (each GPU independent → near-linear scaling).
@@ -221,8 +236,12 @@ one node (vs ~9 days for the naive path).
 
 ### Launch
 ```bash
+# 1) pull the published pretokenized data once (~6 GB, 147 shards):
+hf download yuchengm/quadtok_data --repo-type dataset \
+    --include "pretok_3level/*.tar.gz" --local-dir /YOUR/DIR
+# 2) launch training (varlen_reader reads .tar.gz directly):
 cd /sensei-fs-3/users/yuchengm/code/quadtok/3level
-SHARDS="/PERSISTENT/pretok-{000000..NNNNNN}.tar" STEPS=300000 bash run_gen_train.sh
+SHARDS="/YOUR/DIR/pretok_3level/pretok-c{0000..0146}.tar.gz" STEPS=300000 bash run_gen_train.sh
 ```
 `run_gen_train.sh` encodes the recipe: `--max_tokens_global 524288 --grad_accum 2 --ckpt_every 0
 --compile --lr 4e-4`. `train_gen_varlen.py` CLI knobs: `--config --shards --max_tokens_global
