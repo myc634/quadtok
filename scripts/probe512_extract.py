@@ -1,15 +1,27 @@
-"""Distributed pretokenization for the 512 2-level generator.
+"""Distributed, RESUMABLE pretokenization for the 512 2-level generator.
 
 Runs the frozen 512 tokenizer + guided LPIPS-A/B probing at the chosen operating point (tau=0.03,
 ~1010 tok/img) over ImageNet **train**, and saves per sample the tree structure + token ids:
   code_indices.npy (VQ code per token), lod_indices.npy, patch_indices.npy, cls
-to WebDataset tars, sharded per rank (each GPU handles tars where tar_idx % world == rank).
-Fast: uses the flex-accelerated _forward_optimize; extract needs only 1 A/B recon (for the
-benefit map) + 1 selector+quantize (for the codes) per image (no guided-tree decoder pass).
+to WebDataset tars, sharded per rank (each GPU handles input tars where tar_idx % world == rank).
 
-Launch:  accelerate launch --num_processes 8 scripts/probe512_extract.py --tau 0.03 --out <dir> --ntars_per_rank 3
+DATA AUG (matches base-update's center_hflip): per image the chain is
+  1. Resize shorter edge -> 512, BICUBIC + antialias (PIL's RGB resize IS antialiased bicubic;
+     equivalent to torchvision transforms.Resize(512, BICUBIC, antialias=True) on PIL)
+  2. CenterCrop(512)                                    -- deterministic
+  3. Horizontal flip (--hflip 1, default) -> tokenize BOTH the image and its mirror -> 2 views/image,
+     saved as keys "<key>" (orig) and "<key>_flip" (flipped). 2x training data.
+
+RESUMABLE (important for multi-hour P2 jobs): writes ONE output tar per INPUT tar
+(`pretok-<train-stem>.tar`) via a `.tmp` + atomic rename, and SKIPS input tars whose output already
+exists. So an auto-requeue after preemption continues from the completed tars instead of restarting.
+
+Codes come from `selector._forward_optimize + quantize.min_encoding_indices`, aligned to the guided
+tree's `_get_ordered_nodes` (BFS/lod-major) node order (verified order-preserving — see GENERATOR_TRAINING.md §4).
+
+Launch:  accelerate launch --num_processes 8 scripts/probe512_extract.py --tau 0.03 --hflip 1 --out <dir>
 """
-import io, glob, tarfile, random, argparse, os
+import io, glob, random, argparse, os, tarfile
 from copy import deepcopy
 import numpy as np
 import torch
@@ -27,31 +39,36 @@ EMA = "/sensei-fs-3/users/yuchengm/models/quadtok_512_280k/Tokenizer/512/checkpo
 TRAIN_DIR = "/sensei-fs-3/users/yuchengm/data/imagenet-wds/train"
 
 
-def train_stream(rank, world, bs, ntars_per_rank=None, size=512):
-    """Yield (imgs[0,1], cls[list[int]], keys[list[str]]) from train tars where tar%world==rank."""
+def list_my_tars(rank, world, ntars_per_rank=None):
     tars = sorted(glob.glob(f"{TRAIN_DIR}/train-*.tar"))
     mine = [t for i, t in enumerate(tars) if i % world == rank]
     if ntars_per_rank:
         mine = mine[:ntars_per_rank]
+    return mine
+
+
+def read_tar_batches(tar, bs, size=512):
+    """Yield (imgs[0,1], cls[list[int]], keys[list[str]]) batches from ONE input tar (originals only;
+    the hflip view is made on the tensor in main). Resize: PIL default resample = BICUBIC on RGB
+    (== torchvision Resize(BICUBIC, antialias=True) on PIL); shorter edge -> size, center-crop size."""
     imgs, cls, keys = [], [], []
-    for tar in mine:
-        with tarfile.open(tar) as t:
-            members = {m.name: m for m in t.getmembers()}
-            for name, m in members.items():
-                if not name.endswith(".jpg"):
-                    continue
-                key = name[:-4]
-                im = Image.open(io.BytesIO(t.extractfile(m).read())).convert("RGB")
-                w, h = im.size; s = size / min(w, h)
-                im = im.resize((max(size, round(w * s)), max(size, round(h * s))))
-                w, h = im.size; l, tp = (w - size) // 2, (h - size) // 2
-                im = im.crop((l, tp, l + size, tp + size))
-                cm = members.get(key + ".cls")
-                c = int(t.extractfile(cm).read().decode().strip()) if cm else 0
-                imgs.append(torch.from_numpy(np.array(im)).permute(2, 0, 1).float() / 255.0)
-                cls.append(c); keys.append(key)
-                if len(imgs) == bs:
-                    yield torch.stack(imgs), cls, keys; imgs, cls, keys = [], [], []
+    with tarfile.open(tar) as t:
+        members = {m.name: m for m in t.getmembers()}
+        for name, m in members.items():
+            if not name.endswith(".jpg"):
+                continue
+            key = name[:-4]
+            im = Image.open(io.BytesIO(t.extractfile(m).read())).convert("RGB")
+            w, h = im.size; s = size / min(w, h)
+            im = im.resize((max(size, round(w * s)), max(size, round(h * s))))       # bicubic, antialiased
+            w, h = im.size; l, tp = (w - size) // 2, (h - size) // 2
+            im = im.crop((l, tp, l + size, tp + size))                                # center crop
+            cm = members.get(key + ".cls")
+            c = int(t.extractfile(cm).read().decode().strip()) if cm else 0
+            imgs.append(torch.from_numpy(np.array(im)).permute(2, 0, 1).float() / 255.0)
+            cls.append(c); keys.append(key)
+            if len(imgs) == bs:
+                yield torch.stack(imgs), cls, keys; imgs, cls, keys = [], [], []
     if imgs:
         yield torch.stack(imgs), cls, keys
 
@@ -76,6 +93,7 @@ def main():
     ap.add_argument("--tau", type=float, default=0.03)
     ap.add_argument("--bs", type=int, default=32)
     ap.add_argument("--out", type=str, required=True)
+    ap.add_argument("--hflip", type=int, default=1, help="1 = also tokenize the horizontal mirror (2 views/img)")
     ap.add_argument("--ntars_per_rank", type=int, default=None, help="cap tars/rank (smoke)")
     args = ap.parse_args()
 
@@ -92,16 +110,15 @@ def main():
     pool = nn.AvgPool2d(cell_px, cell_px)
 
     os.makedirs(args.out, exist_ok=True)
-    tar_path = os.path.join(args.out, f"pretok-rank{acc.process_index:03d}.tar")
-    writer = wds.TarWriter(tar_path)
     rng = random.Random(4321 + acc.process_index)
-    n_written, tok_sum = 0, 0
 
     def ordered(root):
         return [n for n in model._get_ordered_nodes(root) if n.lod_level >= gd]
 
-    for imgs, clss, keys in train_stream(acc.process_index, acc.num_processes, args.bs, args.ntars_per_rank):
-        imgs = imgs.to(dev); B = imgs.shape[0]
+    def extract_and_write(writer, imgs, clss, keys, suffix):
+        """Tokenize one batch (guided tau search) and write per-sample records. `suffix` distinguishes
+        the flipped view. Returns (n_written, tok_sum) for this batch."""
+        B = imgs.shape[0]
         with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
             latent = model.encode(imgs)
             mA = torch.zeros(n_coarse, dtype=torch.bool); mA[rng.sample(range(n_coarse), n_coarse // 2)] = True
@@ -120,21 +137,48 @@ def main():
             _, rdg = model.quantize(zg)
             codes = rdg["min_encoding_indices"][:, 0]  # (B, max_len)
 
+        n, tk = 0, 0
         for bi in range(B):
             nodes = gtrees[bi]; L = len(nodes)
             writer.write({
-                "__key__": keys[bi].replace("/", "_"),
+                "__key__": keys[bi].replace("/", "_") + suffix,
                 "code_indices.npy": codes[bi][:L].cpu().numpy().astype(np.int32),
-                "lod_indices.npy": np.array([n.lod_level for n in nodes], dtype=np.int16),
-                "patch_indices.npy": np.array([n.patch_index for n in nodes], dtype=np.int32),
+                "lod_indices.npy": np.array([n_.lod_level for n_ in nodes], dtype=np.int16),
+                "patch_indices.npy": np.array([n_.patch_index for n_ in nodes], dtype=np.int32),
                 "cls": str(clss[bi]),
             })
-            n_written += 1; tok_sum += L
-        if acc.is_main_process and n_written % (args.bs * 5) < args.bs:
-            print(f"[rank0] wrote {n_written} (mean_tok {tok_sum/max(n_written,1):.0f})", flush=True)
+            n += 1; tk += L
+        return n, tk
 
-    writer.close()
-    print(f"[rank{acc.process_index}] DONE wrote {n_written} samples, mean_tok {tok_sum/max(n_written,1):.1f} -> {tar_path}", flush=True)
+    mine = list_my_tars(acc.process_index, acc.num_processes, args.ntars_per_rank)
+    print(f"[rank{acc.process_index}] assigned {len(mine)} input tars | hflip={args.hflip}", flush=True)
+    done_ct, skip_ct = 0, 0
+
+    for tar in mine:
+        stem = os.path.splitext(os.path.basename(tar))[0]      # e.g. train-000042
+        out_tar = os.path.join(args.out, f"pretok-{stem}.tar")
+        if os.path.exists(out_tar):                            # RESUME: already done
+            skip_ct += 1; done_ct += 1; continue
+        tmp = f"{out_tar}.tmp{acc.process_index}"
+        writer = wds.TarWriter(tmp)
+        n_written, tok_sum = 0, 0
+
+        for imgs, clss, keys in read_tar_batches(tar, args.bs):
+            imgs = imgs.to(dev)
+            n, tk = extract_and_write(writer, imgs, clss, keys, "")            # view 0: original
+            n_written += n; tok_sum += tk
+            if args.hflip:                                                     # view 1: horizontal mirror
+                n, tk = extract_and_write(writer, torch.flip(imgs, dims=[3]), clss, keys, "_flip")
+                n_written += n; tok_sum += tk
+
+        writer.close()
+        os.rename(tmp, out_tar)                                # atomic "mark complete"
+        done_ct += 1
+        print(f"[rank{acc.process_index}] {stem}: {n_written} samples ({'2 views' if args.hflip else '1 view'}), "
+              f"mean_tok {tok_sum/max(n_written,1):.0f} -> {os.path.basename(out_tar)}  "
+              f"({done_ct}/{len(mine)}, skipped {skip_ct})", flush=True)
+
+    print(f"[rank{acc.process_index}] ALL DONE: {done_ct}/{len(mine)} tars ({skip_ct} pre-existing)", flush=True)
 
 
 if __name__ == "__main__":

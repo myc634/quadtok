@@ -36,18 +36,25 @@ LlamaGen-L (embed 1024 / depth 24 / heads 16) = **344M** (~300M target). `self.s
 
 `scripts/probe512_extract.py` — distributed (accelerate), shards ImageNet **train** tars by rank
 (`tar_idx % world == rank`), runs the frozen tokenizer + guided LPIPS-A/B search at τ=0.03, and writes
-per sample `code_indices(int32) / lod_indices(int16) / patch_indices(int32) / cls` to WDS tars
-`pretok-rank{r}.tar`. Codes come from `selector._forward_optimize + quantize.min_encoding_indices`,
-aligned to the guided tree's node order (lod4 coarse first, then lod5). Fast (flex `_forward_optimize`).
+per sample `code_indices(int32) / lod_indices(int16) / patch_indices(int32) / cls`. Codes come from
+`selector._forward_optimize + quantize.min_encoding_indices`, aligned to the guided tree's
+`_get_ordered_nodes` (BFS/lod-major) node order (order-preserving — see §4).
 
-**Full run** — all 1470 train tars over an 8-GPU (or multi-node) H200 job:
+**Data aug (per image):** resize shorter-edge→512 (PIL **BICUBIC**, antialiased — identical to the
+tokenizer's training `Resize(BICUBIC, antialias)`) → **CenterCrop(512)** → **horizontal flip**: tokenize
+BOTH the image and its mirror → **2 views/image** (keys `<key>` and `<key>_flip`). `--hflip 1` (default);
+matches base-update's `center_hflip` → 2× data. No random crop/jitter (pretok must be deterministic).
+
+**Resumable:** writes one output tar per INPUT tar (`pretok-<train-stem>.tar`) via `.tmp` + atomic rename,
+skipping input tars whose output already exists — so a P2 job continues cleanly across preemption/requeue.
+
+**Full run** — all 1470 train tars over an 8-GPU H200 (or A100) job:
 ```bash
 accelerate launch --num_processes 8 scripts/probe512_extract.py \
-  --tau 0.03 --bs 32 --out /sensei-fs-3/users/yuchengm/data/quadtok_512_pretok  # (no --ntars_per_rank = all)
+  --tau 0.03 --bs 32 --hflip 1 --out /sensei-fs-3/users/yuchengm/data/quadtok_512_pretok
 ```
-Throughput ≈ the tokenizer probe rate (H200 bs64 ~15 img/s/gpu for the A/B; extract skips the guided
-decode). 1.28M imgs on 8×H200 ≈ a few hours; use more GPUs/nodes to shard further. Output: one
-`pretok-rank{r}.tar` per rank (~4-5k samples each per assigned tar-set). mean ~1010 tok/img.
+Produced dataset (this repo's `pretok_512res`): **1470 tars, ~2.56M samples = 1.28M ImageNet-train imgs ×
+2 hflip views, ~46 GB, mean ~1010 tok/img** — uploaded to HF `yuchengm/quadtok_data:/pretok_512res` (§11).
 
 > The smoke used `--ntars_per_rank 5` (4×A100 → ~17.4k samples) into
 > `/sensei-fs-3/users/yuchengm/data/quadtok_512_pretok_smoke/`.
@@ -233,10 +240,18 @@ on a shared path; the uv venv (torch 2.7.1+cu128, **flash_attn 2.8.3.post1**); `
 (`uv pip install --python <venv>/bin/python --no-deps liger-kernel` — `--no-deps` so it uses torch's
 bundled triton and does not churn torch); the pretok tars.
 
-1. **Pretokenize** ImageNet with the frozen 512 tokenizer (guided τ=0.03, ~1010 tok/img) — see §2 — and
-   point `varlen.pretok_glob` at the output `pretok-*.tar`:
+1. **Get the pretok data.** RECOMMENDED — pull the ready tars from HF. This is the *exact* data used
+   here (full ImageNet-train, guided τ=0.03, **center-crop + hflip = 2 views/img**, 1470 tars /
+   ~2.56M samples / ~46 GB), so training reproduces without re-running the tokenizer:
    ```bash
-   accelerate launch --num_processes 8 scripts/probe512_extract.py --tau 0.03 --bs 32 --out <PRETOK_DIR>
+   huggingface-cli download yuchengm/quadtok_data --repo-type dataset \
+     --include 'pretok_512res/*' --local-dir <DATA_DIR>
+   ```
+   then set `varlen.pretok_glob: <DATA_DIR>/pretok_512res/pretok-*.tar`.
+   *Or* regenerate from scratch (§2; needs the tokenizer EMA + ImageNet). The extractor is **resumable**
+   (one output tar per input tar, skip-existing) so an 8×A100/H200 P2 run survives preemption:
+   ```bash
+   accelerate launch --num_processes 8 scripts/probe512_extract.py --tau 0.03 --bs 32 --hflip 1 --out <PRETOK_DIR>
    ```
 2. **Speed knobs are already the defaults** in `configs/training/generator/gpt_quadtree_512.yaml`
    (`grad_ckpt_interval: 3`, `compile: True`, `use_liger: True`).
